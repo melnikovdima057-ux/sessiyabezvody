@@ -24,6 +24,9 @@ import {
   Timer,
   Play,
   Pause,
+  Volume2,
+  VolumeX,
+  FastForward,
 } from "lucide-react";
 
 interface KeyTerm {
@@ -72,6 +75,7 @@ export default function Home() {
   const [openCards, setOpenCards] = useState<Record<string, boolean>>({});
   const [learnedIds, setLearnedIds] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [highlightedTicketId, setHighlightedTicketId] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "flashcards">("list");
@@ -87,6 +91,10 @@ export default function Home() {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [showTimerWidget, setShowTimerWidget] = useState(false);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Аудио-суфлер (Web Speech API)
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const [speechRate, setSpeechRate] = useState<number>(1.2);
 
   const sampleQuestions = `1. Реляционные базы данных и нормализация (1NF, 2NF, 3NF).
 2. Транзакции и принципы ACID: уровни изоляции.
@@ -178,6 +186,75 @@ export default function Home() {
     }
   }, [inputText, answers, learnedIds, history, isHydrated]);
 
+  // Остановка озвучки при уходе со страницы
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  // Управление озвучкой для микронаушника
+  const stopSpeech = () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      setSpeakingId(null);
+    }
+  };
+
+  const speakTicket = (item: ExamAnswer, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      alert("Синтез речи не поддерживается данным браузером.");
+      return;
+    }
+
+    if (speakingId === item.id) {
+      stopSpeech();
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const textToRead = `Билет номер ${item.questionNumber}. ${item.question}. Суть: ${item.essence.join(". ")}. Главный тезис: ${item.answerGrade5.thesis}. Ответ: ${item.answerGrade5.fullAnswer}`;
+
+    const utterance = new SpeechSynthesisUtterance(textToRead);
+    utterance.lang = "ru-RU";
+    utterance.rate = speechRate;
+
+    utterance.onend = () => setSpeakingId(null);
+    utterance.onerror = () => setSpeakingId(null);
+
+    setSpeakingId(item.id);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Быстрый переход к номеру билета (Фича 5)
+  const jumpToTicket = (item: ExamAnswer) => {
+    setOpenCards((prev) => ({ ...prev, [item.id]: true }));
+    setHighlightedTicketId(item.id);
+
+    if (viewMode === "flashcards") {
+      const idx = filteredAnswers.findIndex((a) => a.id === item.id);
+      if (idx !== -1) {
+        setCurrentCardIndex(idx);
+        setIsFlipped(true);
+      }
+    } else {
+      setTimeout(() => {
+        const el = document.getElementById(`ticket-${item.id}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 50);
+    }
+
+    setTimeout(() => {
+      setHighlightedTicketId(null);
+    }, 2500);
+  };
+
   const handleAnalyze = async () => {
     const textToProcess = inputText.trim();
     if (textToProcess.length < 4) return;
@@ -254,6 +331,7 @@ export default function Home() {
   };
 
   const clearCurrentWorkspace = () => {
+    stopSpeech();
     setInputText("");
     setAnswers([]);
     setLearnedIds({});
@@ -333,7 +411,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-medium selection:bg-indigo-500/30 selection:text-indigo-200">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-medium selection:bg-indigo-500/30 selection:text-indigo-200 pb-16">
       {/* Шапка */}
       <header className="no-print border-b border-zinc-800/80 bg-zinc-900/40 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
@@ -574,7 +652,7 @@ export default function Home() {
             <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
               <span className="text-xs text-zinc-500">
                 {inputText.trim().length === 0
-                  ? "Автосохранение включено • Экзаменационный секундомер"
+                  ? "Автосохранение включено • Экзаменационный секундомер • Аудио-суфлёр"
                   : `Символов: ${inputText.trim().length} • Сохранено в браузере`}
               </span>
 
@@ -591,7 +669,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Прогресс и фильтры */}
+        {/* Прогресс, быстрый поиск и нумпад перехода */}
         {answers.length > 0 && (
           <section className="no-print mb-6 space-y-4">
             <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/40 p-4">
@@ -609,6 +687,42 @@ export default function Home() {
               </div>
             </div>
 
+            {/* ФИЧА 5: НУМПАД БЫСТРОГО ПЕРЕХОДА К НОМЕРУ БИЛЕТА */}
+            <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-3.5 backdrop-blur-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+                  <FastForward className="w-3.5 h-3.5" />
+                  Прыжок к билету (вытянул в аудитории):
+                </span>
+                <span className="text-[11px] text-zinc-500">
+                  Клик открывает и подсвечивает билет
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                {answers.map((item) => {
+                  const isLearned = !!learnedIds[item.id];
+                  const isCurrent = highlightedTicketId === item.id;
+                  return (
+                    <button
+                      key={`jump-${item.id}`}
+                      type="button"
+                      onClick={() => jumpToTicket(item)}
+                      className={`h-7 min-w-[28px] px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        isCurrent
+                          ? "bg-indigo-500 text-white scale-110 shadow-lg shadow-indigo-500/50"
+                          : isLearned
+                          ? "bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/80"
+                          : "bg-zinc-800/90 border border-zinc-700/60 text-zinc-300 hover:bg-indigo-600 hover:text-white"
+                      }`}
+                      title={`Перейти к вопросу #${item.questionNumber}: ${item.question}`}
+                    >
+                      {item.questionNumber}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -619,7 +733,7 @@ export default function Home() {
                     setSearchQuery(e.target.value);
                     setCurrentCardIndex(0);
                   }}
-                  placeholder="Быстрый поиск по вопросам, терминам и шпорам..."
+                  placeholder="Быстрый поиск по билетам, терминам и шпорам..."
                   className="w-full pl-10 pr-9 py-2 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs md:text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
                 />
                 {searchQuery && (
@@ -721,9 +835,28 @@ export default function Home() {
                 className="rounded-2xl border border-indigo-500/40 bg-zinc-900/70 p-6 md:p-8 min-h-[320px] flex flex-col justify-between cursor-pointer select-none shadow-xl hover:border-indigo-400/60 transition-all"
               >
                 <div className="flex items-center justify-between text-xs text-zinc-400">
-                  <span className="px-2.5 py-1 rounded-md bg-zinc-800 text-indigo-300 font-bold">
-                    Билет #{activeFlashcard.questionNumber} из {filteredAnswers.length}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-md bg-zinc-800 text-indigo-300 font-bold">
+                      Билет #{activeFlashcard.questionNumber} из {filteredAnswers.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => speakTicket(activeFlashcard, e)}
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        speakingId === activeFlashcard.id
+                          ? "bg-indigo-600 text-white"
+                          : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                      }`}
+                      title="Озвучить билет в наушник"
+                    >
+                      {speakingId === activeFlashcard.id ? (
+                        <VolumeX className="w-3.5 h-3.5" />
+                      ) : (
+                        <Volume2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+
                   <span className="flex items-center gap-1.5 text-zinc-400">
                     <Eye className="w-3.5 h-3.5" />
                     {isFlipped ? "Скрыть ответ" : "Показать ответ"}
@@ -826,12 +959,17 @@ export default function Home() {
               {filteredAnswers.map((item) => {
                 const isOpen = !!openCards[item.id];
                 const isLearned = !!learnedIds[item.id];
+                const isHighlighted = highlightedTicketId === item.id;
+                const isSpeakingThis = speakingId === item.id;
 
                 return (
                   <div
                     key={item.id}
-                    className={`rounded-2xl border transition-all duration-300 ${
-                      isLearned
+                    id={`ticket-${item.id}`}
+                    className={`rounded-2xl border transition-all duration-300 scroll-mt-24 ${
+                      isHighlighted
+                        ? "border-indigo-400 ring-2 ring-indigo-500/50 bg-indigo-950/20 shadow-2xl"
+                        : isLearned
                         ? "border-emerald-900/40 bg-zinc-950/40 opacity-80"
                         : "border-zinc-800/90 bg-zinc-900/40 shadow-sm hover:border-zinc-700/80"
                     }`}
@@ -841,7 +979,13 @@ export default function Home() {
                       className="p-4 md:p-5 flex items-start justify-between gap-4 cursor-pointer select-none"
                     >
                       <div className="flex items-start gap-3 flex-1 min-w-0">
-                        <span className="flex-shrink-0 w-6 h-6 rounded-md bg-zinc-800 border border-zinc-700/60 text-zinc-300 text-xs flex items-center justify-center font-bold">
+                        <span
+                          className={`flex-shrink-0 w-6 h-6 rounded-md text-xs flex items-center justify-center font-bold border ${
+                            isHighlighted
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-zinc-800 border-zinc-700/60 text-zinc-300"
+                          }`}
+                        >
                           {item.questionNumber}
                         </span>
                         <h3
@@ -853,11 +997,30 @@ export default function Home() {
                         </h3>
                       </div>
 
-                      <div className="flex items-center gap-2 flex-shrink-0">
+                      <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
+                        {/* Кнопка озвучки для микронаушника (ФИЧА 1) */}
+                        <button
+                          type="button"
+                          onClick={(e) => speakTicket(item, e)}
+                          title="Озвучить для микронаушника"
+                          className={`no-print p-1.5 rounded-lg border transition-colors ${
+                            isSpeakingThis
+                              ? "bg-indigo-600 border-indigo-500 text-white shadow-md animate-pulse"
+                              : "bg-zinc-800/80 border-zinc-700/60 text-zinc-400 hover:text-white hover:bg-zinc-700"
+                          }`}
+                        >
+                          {isSpeakingThis ? (
+                            <VolumeX className="w-4 h-4" />
+                          ) : (
+                            <Volume2 className="w-4 h-4" />
+                          )}
+                        </button>
+
                         <button
                           type="button"
                           onClick={(e) => toggleLearned(item.id, e)}
-                          className={`no-print p-1 rounded-md transition-colors ${
+                          title="Отметить как выученное"
+                          className={`no-print p-1.5 rounded-lg transition-colors ${
                             isLearned
                               ? "text-emerald-400 hover:text-emerald-300"
                               : "text-zinc-500 hover:text-zinc-300"
@@ -981,6 +1144,42 @@ export default function Home() {
           )}
         </section>
       </main>
+
+      {/* ПЛАВАЮЩИЙ ПЛЕЕР СУФЛЕРА В НАУШНИК (видимый при включенной диктовке) */}
+      {speakingId && (
+        <aside aria-label="Плеер аудио-суфлёра" className="no-print fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-2xl border border-indigo-500/60 bg-zinc-900/95 p-3 shadow-2xl backdrop-blur-md">
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+            <span className="text-xs font-bold text-white">Суфлёр в наушнике</span>
+          </div>
+
+          <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+            {[1.0, 1.2, 1.5].map((rate) => (
+              <button
+                key={rate}
+                type="button"
+                onClick={() => setSpeechRate(rate)}
+                className={`px-2 py-0.5 text-[11px] rounded-lg font-bold transition-colors cursor-pointer ${
+                  speechRate === rate
+                    ? "bg-indigo-600 text-white"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                {rate}x
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={stopSpeech}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors cursor-pointer"
+          >
+            <VolumeX className="w-3.5 h-3.5" />
+            <span>Стоп</span>
+          </button>
+        </aside>
+      )}
 
       {/* Футер с реквизитами для ЮKassa */}
       <footer className="no-print mt-16 border-t border-zinc-800/80 py-8 text-center text-xs text-zinc-500">
