@@ -24,7 +24,9 @@ import {
   Timer,
   Play,
   Pause,
-  Volume2,
+  QrCode,
+  ShieldCheck,
+  CreditCard,
 } from "lucide-react";
 
 interface KeyTerm {
@@ -64,6 +66,16 @@ const STORAGE_KEYS = {
   CURRENT_ANSWERS: "sbv_current_answers",
   CURRENT_LEARNED: "sbv_current_learned",
   HISTORY: "sbv_sessions_history",
+  PAID_SESSIONS: "sbv_paid_sessions",
+};
+
+// НАСТРОЙКИ СБП И ТАРИФА
+const SBP_SETTINGS = {
+  FREE_LIMIT: 2,
+  PRICE_PER_EXTRA: 10,
+  PHONE: "+7 983 306-89-68", // Замени на свой реальный номер телефона
+  BANK: "Т-Банк / Озон / Сбер",      // Твой банк для переводов по СБП
+  RECIPIENT: "Дмитрий М.",    // Имя и инициал получателя
 };
 
 export default function Home() {
@@ -82,37 +94,39 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Состояние экзаменационного таймера
-  const [timerInitialSeconds, setTimerInitialSeconds] = useState(120); // По умолчанию 2 мин
+  // Состояния таймера
+  const [timerInitialSeconds, setTimerInitialSeconds] = useState(120);
   const [timeLeft, setTimeLeft] = useState(120);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [showTimerWidget, setShowTimerWidget] = useState(false);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Состояния оплаты СБП
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [detectedCount, setDetectedCount] = useState(0);
+  const [phoneCopied, setPhoneCopied] = useState(false);
+
   const sampleQuestions = `1. Реляционные базы данных и нормализация (1NF, 2NF, 3NF).
 2. Транзакции и принципы ACID: уровни изоляции.
 3. Индексы в СУБД: B-Tree vs Hash-индексы.`;
 
-  // Звуковой сигнал завершения через AudioContext браузера (без внешних файлов)
+  // Звуковой сигнал таймера
   const playBeep = () => {
     try {
       const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = "sine";
-      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // Ре (D5)
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
       gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
       osc.connect(gain);
       gain.connect(audioCtx.destination);
       osc.start();
       osc.stop(audioCtx.currentTime + 0.8);
-    } catch {
-      // Игнорируем в браузерах с блокировкой автозвука
-    }
+    } catch {}
   };
 
-  // Логика тиканья таймера
   useEffect(() => {
     if (isTimerRunning) {
       timerIntervalRef.current = setInterval(() => {
@@ -183,12 +197,51 @@ export default function Home() {
     }
   }, [inputText, answers, learnedIds, history, isHydrated]);
 
-  const handleAnalyze = async () => {
+  // Подсчёт количества билетов в тексте
+  const countTickets = (text: string): { count: number; items: string[] } => {
+    const rawLines = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 2);
+
+    const numbered = rawLines.filter((l) =>
+      /^(билет\s*\d+|\d+[\.\)\-\s])/i.test(l)
+    );
+
+    const finalItems = numbered.length > 0 ? numbered : rawLines;
+    return {
+      count: Math.max(1, finalItems.length),
+      items: finalItems,
+    };
+  };
+
+  // Проверка перед разбором: запуск или запрос оплаты
+  const handleInitiateAnalyze = () => {
     const textToProcess = inputText.trim();
     if (textToProcess.length < 4) return;
 
-    setIsLoading(true);
+    const { count } = countTickets(textToProcess);
+    setDetectedCount(count);
 
+    if (count > SBP_SETTINGS.FREE_LIMIT) {
+      setShowPayModal(true);
+    } else {
+      executeAnalyze(textToProcess);
+    }
+  };
+
+  // Разбор только первых 2 билетов бесплатно
+  const handleFreePartialAnalyze = () => {
+    const { items } = countTickets(inputText);
+    const limitedText = items.slice(0, SBP_SETTINGS.FREE_LIMIT).join("\n");
+    setInputText(limitedText);
+    setShowPayModal(false);
+    executeAnalyze(limitedText);
+  };
+
+  // Непосредственный вызов API генерации
+  const executeAnalyze = async (textToProcess: string) => {
+    setIsLoading(true);
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -213,8 +266,8 @@ export default function Home() {
       if (data.length > 0) {
         const firstQuestion = data[0].question;
         const sessionTitle =
-          firstQuestion.length > 42
-            ? firstQuestion.slice(0, 42) + "..."
+          firstQuestion.length > 40
+            ? firstQuestion.slice(0, 40) + "..."
             : firstQuestion;
 
         const newSession: SavedSession = {
@@ -235,10 +288,24 @@ export default function Home() {
       }
     } catch (err) {
       console.error(err);
-      alert("Не удалось разобрать билеты. Попробуй еще раз :)");
+      alert("Не удалось разобрать билеты. Попробуй ещё раз :)");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Подтверждение оплаты СБП
+  const handleConfirmPayment = () => {
+    setShowPayModal(false);
+    executeAnalyze(inputText.trim());
+  };
+
+  const copyPhoneNumber = async () => {
+    try {
+      await navigator.clipboard.writeText(SBP_SETTINGS.PHONE.replace(/\s+/g, ""));
+      setPhoneCopied(true);
+      setTimeout(() => setPhoneCopied(false), 2000);
+    } catch {}
   };
 
   const loadFromHistory = (session: SavedSession) => {
@@ -331,17 +398,111 @@ export default function Home() {
 
   const activeFlashcard = filteredAnswers[currentCardIndex] || null;
 
-  // Форматирование времени секундомера (MM:SS)
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m}:${s < 10 ? "0" : ""}${s}`;
   };
 
+  // Расчёт стоимости пакета
+  const extraTicketsCount = Math.max(0, detectedCount - SBP_SETTINGS.FREE_LIMIT);
+  const totalPrice = extraTicketsCount * SBP_SETTINGS.PRICE_PER_EXTRA;
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-medium selection:bg-indigo-500/30 selection:text-indigo-200">
+      {/* МОДАЛЬНОЕ ОКНО ОПЛАТЫ ПО СБП */}
+      {showPayModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="w-full max-w-md rounded-2xl border border-indigo-500/40 bg-zinc-900 p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-base font-bold text-white">Оплата разбора по СБП</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPayModal(false)}
+                className="text-zinc-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Детализация расчёта */}
+            <div className="mt-4 space-y-2 rounded-xl bg-zinc-950/70 p-3.5 border border-zinc-800 text-xs">
+              <div className="flex justify-between text-zinc-300">
+                <span>Обнаружено билетов:</span>
+                <span className="font-bold text-white">{detectedCount} шт.</span>
+              </div>
+              <div className="flex justify-between text-emerald-400">
+                <span>Бесплатно (пробный тариф):</span>
+                <span className="font-bold">2 шт.</span>
+              </div>
+              <div className="flex justify-between text-zinc-300">
+                <span>Платные билеты:</span>
+                <span>{extraTicketsCount} шт. × {SBP_SETTINGS.PRICE_PER_EXTRA} ₽</span>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-zinc-800 text-sm">
+                <span className="font-bold text-white">Итого к оплате:</span>
+                <span className="font-extrabold text-indigo-400 text-base">{totalPrice} ₽</span>
+              </div>
+            </div>
+
+            {/* Реквизиты СБП */}
+            <div className="mt-4 p-3.5 rounded-xl bg-indigo-950/20 border border-indigo-800/40 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-400">Номер телефона СБП:</span>
+                <button
+                  type="button"
+                  onClick={copyPhoneNumber}
+                  className="flex items-center gap-1 text-indigo-300 hover:text-indigo-200 font-bold"
+                >
+                  {phoneCopied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" /> Скопировано!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" /> {SBP_SETTINGS.PHONE}
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="flex justify-between text-xs text-zinc-400">
+                <span>Банк:</span>
+                <span className="text-zinc-200 font-semibold">{SBP_SETTINGS.BANK}</span>
+              </div>
+              <div className="flex justify-between text-xs text-zinc-400">
+                <span>Получатель:</span>
+                <span className="text-zinc-200 font-semibold">{SBP_SETTINGS.RECIPIENT}</span>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-2">
+              <button
+                type="button"
+                onClick={handleConfirmPayment}
+                className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white text-sm shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Я оплатил {totalPrice} ₽ — разобрать все</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleFreePartialAnalyze}
+                className="w-full py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700/80 text-zinc-300 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Разобрать только первые 2 билета бесплатно
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Шапка */}
-      <header className="no-print border-b border-zinc-800/80 bg-zinc-900/40 backdrop-blur-md sticky top-0 z-50">
+      <header className="no-print border-b border-zinc-800/80 bg-zinc-900/40 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30">
@@ -358,7 +519,6 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Кнопка таймера в шапке */}
             <button
               type="button"
               onClick={() => setShowTimerWidget(!showTimerWidget)}
@@ -387,14 +547,14 @@ export default function Home() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6 md:py-8">
-        {/* ПАНЕЛЬ ТАЙМЕРА ОТВЕТА */}
+        {/* Панель таймера */}
         {showTimerWidget && (
           <div className="no-print mb-6 rounded-2xl border border-indigo-500/40 bg-zinc-900/95 p-4 md:p-5 shadow-2xl backdrop-blur-md">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Timer className="w-4 h-4 text-indigo-400" />
                 <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-200">
-                  Таймер устного ответа перед преподавателем
+                  Таймер устного ответа
                 </h3>
               </div>
               <button
@@ -428,7 +588,6 @@ export default function Home() {
                 </span>
               </div>
 
-              {/* Выбор времени */}
               <div className="flex items-center gap-1.5">
                 {[60, 120, 180].map((sec) => (
                   <button
@@ -446,7 +605,6 @@ export default function Home() {
                 ))}
               </div>
 
-              {/* Кнопки управления таймером */}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -481,14 +639,14 @@ export default function Home() {
           </div>
         )}
 
-        {/* Выпадающая панель истории разборов */}
+        {/* Панель истории разборов */}
         {showHistory && (
           <div className="no-print mb-6 rounded-2xl border border-indigo-500/30 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur-md">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <History className="w-4 h-4 text-indigo-400" />
                 <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-200">
-                  Сохраненные разборы на устройстве
+                  Сохраненные разборы
                 </h3>
               </div>
               <button
@@ -502,7 +660,7 @@ export default function Home() {
 
             {history.length === 0 ? (
               <p className="text-xs text-zinc-500 py-3">
-                История пока пуста. Разбери первый список билетов, и он автоматически сохранится здесь :)
+                История пуста. Разобранные билеты появятся здесь :)
               </p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -535,18 +693,24 @@ export default function Home() {
           </div>
         )}
 
-        {/* Секция ввода вопросов */}
+        {/* Ввод вопросов */}
         <section className="no-print mb-8">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 md:p-6 shadow-xl backdrop-blur-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <span className="text-xs text-zinc-400">Быстрые примеры:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-zinc-400">Тариф:</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                  2 билета бесплатно
+                </span>
+                <span className="text-xs text-zinc-500">далее 10 ₽ / билет</span>
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setInputText(sampleQuestions)}
                   className="text-xs text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-700/80 px-2.5 py-1 rounded-lg border border-zinc-700/60 transition-colors cursor-pointer"
                 >
-                  Базы данных (SQL)
+                  Пример (SQL)
                 </button>
                 {answers.length > 0 && (
                   <button
@@ -564,7 +728,7 @@ export default function Home() {
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="Вставь вопросы к экзамену — сервис выделит суть, термины и структуру ответа на 5."
+                placeholder="Вставь список билетов или экзаменационных вопросов..."
                 rows={4}
                 className="w-full rounded-xl bg-zinc-950/80 border border-zinc-800 p-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/80 transition-all resize-y"
               />
@@ -583,13 +747,13 @@ export default function Home() {
             <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
               <span className="text-xs text-zinc-500">
                 {inputText.trim().length === 0
-                  ? "Автосохранение включено • Таймер устного ответа"
-                  : `Символов: ${inputText.trim().length} • Сохранено в памяти`}
+                  ? "СБП оплата • Автосохранение • Секундомер ответа"
+                  : `Билетов обнаружено: ~${countTickets(inputText).count}`}
               </span>
 
               <button
                 type="button"
-                onClick={handleAnalyze}
+                onClick={handleInitiateAnalyze}
                 disabled={isLoading || inputText.trim().length < 4}
                 className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white text-sm font-semibold shadow-lg shadow-indigo-600/20 transition-all cursor-pointer disabled:cursor-not-allowed"
               >
@@ -600,7 +764,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Прогресс-бар и инструменты */}
+        {/* Прогресс и фильтры */}
         {answers.length > 0 && (
           <section className="no-print mb-6 space-y-4">
             <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/40 p-4">
@@ -677,7 +841,7 @@ export default function Home() {
           </section>
         )}
 
-        {/* Вывод ответов */}
+        {/* Разобранные билеты */}
         <section>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -735,7 +899,7 @@ export default function Home() {
                   </span>
                   <span className="flex items-center gap-1.5 text-zinc-400">
                     <Eye className="w-3.5 h-3.5" />
-                    {isFlipped ? "Нажми, чтобы скрыть ответ" : "Нажми на карточку, чтобы увидеть ответ"}
+                    {isFlipped ? "Скрыть ответ" : "Показать ответ"}
                   </span>
                 </div>
 
@@ -866,11 +1030,6 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={(e) => toggleLearned(item.id, e)}
-                          title={
-                            isLearned
-                              ? "Отметить как невыученное"
-                              : "Отметить как выученное"
-                          }
                           className={`no-print p-1 rounded-md transition-colors ${
                             isLearned
                               ? "text-emerald-400 hover:text-emerald-300"
