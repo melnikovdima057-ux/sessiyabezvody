@@ -24,9 +24,6 @@ import {
   Timer,
   Play,
   Pause,
-  QrCode,
-  ShieldCheck,
-  CreditCard,
 } from "lucide-react";
 
 interface KeyTerm {
@@ -66,16 +63,6 @@ const STORAGE_KEYS = {
   CURRENT_ANSWERS: "sbv_current_answers",
   CURRENT_LEARNED: "sbv_current_learned",
   HISTORY: "sbv_sessions_history",
-  PAID_SESSIONS: "sbv_paid_sessions",
-};
-
-// НАСТРОЙКИ СБП И ТАРИФА
-const SBP_SETTINGS = {
-  FREE_LIMIT: 2,
-  PRICE_PER_EXTRA: 10,
-  PHONE: "+7 983 306-89-68", // Замени на свой реальный номер телефона
-  BANK: "Т-Банк / Озон / Сбер",      // Твой банк для переводов по СБП
-  RECIPIENT: "Дмитрий М.",    // Имя и инициал получателя
 };
 
 export default function Home() {
@@ -94,23 +81,17 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Состояния таймера
+  // Экзаменационный таймер
   const [timerInitialSeconds, setTimerInitialSeconds] = useState(120);
   const [timeLeft, setTimeLeft] = useState(120);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [showTimerWidget, setShowTimerWidget] = useState(false);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Состояния оплаты СБП
-  const [showPayModal, setShowPayModal] = useState(false);
-  const [detectedCount, setDetectedCount] = useState(0);
-  const [phoneCopied, setPhoneCopied] = useState(false);
-
   const sampleQuestions = `1. Реляционные базы данных и нормализация (1NF, 2NF, 3NF).
 2. Транзакции и принципы ACID: уровни изоляции.
 3. Индексы в СУБД: B-Tree vs Hash-индексы.`;
 
-  // Звуковой сигнал таймера
   const playBeep = () => {
     try {
       const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
@@ -159,7 +140,7 @@ export default function Home() {
     setTimeLeft(timerInitialSeconds);
   };
 
-  // Загрузка из localStorage
+  // Чтение localStorage
   useEffect(() => {
     try {
       const savedInput = localStorage.getItem(STORAGE_KEYS.CURRENT_INPUT);
@@ -197,51 +178,12 @@ export default function Home() {
     }
   }, [inputText, answers, learnedIds, history, isHydrated]);
 
-  // Подсчёт количества билетов в тексте
-  const countTickets = (text: string): { count: number; items: string[] } => {
-    const rawLines = text
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 2);
-
-    const numbered = rawLines.filter((l) =>
-      /^(билет\s*\d+|\d+[\.\)\-\s])/i.test(l)
-    );
-
-    const finalItems = numbered.length > 0 ? numbered : rawLines;
-    return {
-      count: Math.max(1, finalItems.length),
-      items: finalItems,
-    };
-  };
-
-  // Проверка перед разбором: запуск или запрос оплаты
-  const handleInitiateAnalyze = () => {
+  const handleAnalyze = async () => {
     const textToProcess = inputText.trim();
     if (textToProcess.length < 4) return;
 
-    const { count } = countTickets(textToProcess);
-    setDetectedCount(count);
-
-    if (count > SBP_SETTINGS.FREE_LIMIT) {
-      setShowPayModal(true);
-    } else {
-      executeAnalyze(textToProcess);
-    }
-  };
-
-  // Разбор только первых 2 билетов бесплатно
-  const handleFreePartialAnalyze = () => {
-    const { items } = countTickets(inputText);
-    const limitedText = items.slice(0, SBP_SETTINGS.FREE_LIMIT).join("\n");
-    setInputText(limitedText);
-    setShowPayModal(false);
-    executeAnalyze(limitedText);
-  };
-
-  // Непосредственный вызов API генерации
-  const executeAnalyze = async (textToProcess: string) => {
     setIsLoading(true);
+
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -292,20 +234,6 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // Подтверждение оплаты СБП
-  const handleConfirmPayment = () => {
-    setShowPayModal(false);
-    executeAnalyze(inputText.trim());
-  };
-
-  const copyPhoneNumber = async () => {
-    try {
-      await navigator.clipboard.writeText(SBP_SETTINGS.PHONE.replace(/\s+/g, ""));
-      setPhoneCopied(true);
-      setTimeout(() => setPhoneCopied(false), 2000);
-    } catch {}
   };
 
   const loadFromHistory = (session: SavedSession) => {
@@ -404,103 +332,8 @@ export default function Home() {
     return `${m}:${s < 10 ? "0" : ""}${s}`;
   };
 
-  // Расчёт стоимости пакета
-  const extraTicketsCount = Math.max(0, detectedCount - SBP_SETTINGS.FREE_LIMIT);
-  const totalPrice = extraTicketsCount * SBP_SETTINGS.PRICE_PER_EXTRA;
-
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-medium selection:bg-indigo-500/30 selection:text-indigo-200">
-      {/* МОДАЛЬНОЕ ОКНО ОПЛАТЫ ПО СБП */}
-      {showPayModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="w-full max-w-md rounded-2xl border border-indigo-500/40 bg-zinc-900 p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-              <div className="flex items-center gap-2">
-                <CreditCard className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-base font-bold text-white">Оплата разбора по СБП</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowPayModal(false)}
-                className="text-zinc-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Детализация расчёта */}
-            <div className="mt-4 space-y-2 rounded-xl bg-zinc-950/70 p-3.5 border border-zinc-800 text-xs">
-              <div className="flex justify-between text-zinc-300">
-                <span>Обнаружено билетов:</span>
-                <span className="font-bold text-white">{detectedCount} шт.</span>
-              </div>
-              <div className="flex justify-between text-emerald-400">
-                <span>Бесплатно (пробный тариф):</span>
-                <span className="font-bold">2 шт.</span>
-              </div>
-              <div className="flex justify-between text-zinc-300">
-                <span>Платные билеты:</span>
-                <span>{extraTicketsCount} шт. × {SBP_SETTINGS.PRICE_PER_EXTRA} ₽</span>
-              </div>
-              <div className="flex justify-between pt-2 border-t border-zinc-800 text-sm">
-                <span className="font-bold text-white">Итого к оплате:</span>
-                <span className="font-extrabold text-indigo-400 text-base">{totalPrice} ₽</span>
-              </div>
-            </div>
-
-            {/* Реквизиты СБП */}
-            <div className="mt-4 p-3.5 rounded-xl bg-indigo-950/20 border border-indigo-800/40 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-zinc-400">Номер телефона СБП:</span>
-                <button
-                  type="button"
-                  onClick={copyPhoneNumber}
-                  className="flex items-center gap-1 text-indigo-300 hover:text-indigo-200 font-bold"
-                >
-                  {phoneCopied ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" /> Скопировано!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" /> {SBP_SETTINGS.PHONE}
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="flex justify-between text-xs text-zinc-400">
-                <span>Банк:</span>
-                <span className="text-zinc-200 font-semibold">{SBP_SETTINGS.BANK}</span>
-              </div>
-              <div className="flex justify-between text-xs text-zinc-400">
-                <span>Получатель:</span>
-                <span className="text-zinc-200 font-semibold">{SBP_SETTINGS.RECIPIENT}</span>
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-2">
-              <button
-                type="button"
-                onClick={handleConfirmPayment}
-                className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white text-sm shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>Я оплатил {totalPrice} ₽ — разобрать все</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleFreePartialAnalyze}
-                className="w-full py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700/80 text-zinc-300 text-xs font-semibold transition-colors cursor-pointer"
-              >
-                Разобрать только первые 2 билета бесплатно
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Шапка */}
       <header className="no-print border-b border-zinc-800/80 bg-zinc-900/40 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
@@ -697,20 +530,14 @@ export default function Home() {
         <section className="no-print mb-8">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 md:p-6 shadow-xl backdrop-blur-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-zinc-400">Тариф:</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
-                  2 билета бесплатно
-                </span>
-                <span className="text-xs text-zinc-500">далее 10 ₽ / билет</span>
-              </div>
+              <span className="text-xs text-zinc-400">Быстрые примеры:</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setInputText(sampleQuestions)}
                   className="text-xs text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-700/80 px-2.5 py-1 rounded-lg border border-zinc-700/60 transition-colors cursor-pointer"
                 >
-                  Пример (SQL)
+                  Базы данных (SQL)
                 </button>
                 {answers.length > 0 && (
                   <button
@@ -728,7 +555,7 @@ export default function Home() {
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="Вставь список билетов или экзаменационных вопросов..."
+                placeholder="Вставь экзаменационные вопросы или билеты — сервис сделает структурированные микрошпаргалки."
                 rows={4}
                 className="w-full rounded-xl bg-zinc-950/80 border border-zinc-800 p-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/80 transition-all resize-y"
               />
@@ -747,13 +574,13 @@ export default function Home() {
             <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
               <span className="text-xs text-zinc-500">
                 {inputText.trim().length === 0
-                  ? "СБП оплата • Автосохранение • Секундомер ответа"
-                  : `Билетов обнаружено: ~${countTickets(inputText).count}`}
+                  ? "Автосохранение включено • Экзаменационный секундомер"
+                  : `Символов: ${inputText.trim().length} • Сохранено в браузере`}
               </span>
 
               <button
                 type="button"
-                onClick={handleInitiateAnalyze}
+                onClick={handleAnalyze}
                 disabled={isLoading || inputText.trim().length < 4}
                 className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white text-sm font-semibold shadow-lg shadow-indigo-600/20 transition-all cursor-pointer disabled:cursor-not-allowed"
               >
@@ -886,7 +713,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* FLASHCARDS */}
+          {/* Режим Flashcards */}
           {viewMode === "flashcards" && activeFlashcard && (
             <div className="no-print my-4">
               <div
@@ -993,7 +820,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* СПИСОК */}
+          {/* Режим списка */}
           {viewMode === "list" && (
             <div className="space-y-4">
               {filteredAnswers.map((item) => {
@@ -1154,7 +981,8 @@ export default function Home() {
           )}
         </section>
       </main>
-      {/* Юридический подвал для ЮKassa */}
+
+      {/* Футер с реквизитами для ЮKassa */}
       <footer className="no-print mt-16 border-t border-zinc-800/80 py-8 text-center text-xs text-zinc-500">
         <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div>
@@ -1168,10 +996,10 @@ export default function Home() {
               Оферта и реквизиты
             </a>
             <a
-              href="mailto:themoon902448@gmail.com"
+              href="mailto:puzikovdima359@gmail.com"
               className="hover:text-indigo-300 transition-colors"
             >
-              Поддержка: themoon902448@gmail.com
+              Поддержка: puzikovdima359@gmail.com
             </a>
           </div>
         </div>
