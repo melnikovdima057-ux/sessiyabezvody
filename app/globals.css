@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #090a0f;
+  --foreground: #f3f4f6;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Custom sleek scrollbar for dark mode */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #090a0f;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e2230;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2d3348;
+}
+
+/* Subtle glow utility */
+.radial-glow {
+  background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
+}
+/* Стили для печати и экспорта шпаргалки в PDF */
+@media print {
+  /* Прячем всё лишнее */
+  header,
+  #input-card,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  body,
+  main,
+  #results-section {
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Разворачиваем все карточки принудительно на бумаге */
+  .grid-rows-\[0fr\] {
+    grid-template-rows: 1fr !important;
+    opacity: 1 !important;
+  }
+
+  /* Компактная верстка под шпоры: мелкий шрифт и колонки */
+  .cheat-sheet-grid {
+    column-count: 2;
+    column-gap: 12px;
+  }
+
+  .cheat-sheet-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 1px solid #d4d4d8 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin-bottom: 8px !important;
+    padding: 8px !important;
+    font-size: 9px !important;
+    line-height: 1.25 !important;
+  }
+
+  .cheat-sheet-card * {
+    color: #000000 !important;
+  }
+}
