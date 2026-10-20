@@ -996,10 +996,10 @@ export default function Home() {
               Оферта и реквизиты
             </a>
             <a
-              href="mailto:puzikovdima359@gmail.com"
+              href="mailto:themoon902448@gmail.com"
               className="hover:text-indigo-300 transition-colors"
             >
-              Поддержка: puzikovdima359@gmail.com
+              Поддержка: themoon902448@gmail.com
             </a>
           </div>
         </div>
