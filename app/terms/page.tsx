@@ -90,12 +90,31 @@ export default function TermsPage() {
               </div>
               <div>
                 <span className="text-zinc-500 block">Email для поддержки:</span>
-                <span className="text-indigo-400 font-medium">puzikovdima359@gmail.com</span>
+                <span className="text-indigo-400 font-medium">themoon902448@gmail.com</span>
               </div>
             </div>
           </section>
         </div>
       </div>
+      {/* Футер для модерации и юридических реквизитов */}
+      <footer className="no-print mt-16 border-t border-zinc-800/80 py-8 text-center text-xs text-zinc-500">
+        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div>
+            © 2026 СессияБезВоды. Самозанятый Мельников Д. Д., ИНН 540212274813
+          </div>
+          <div className="flex items-center gap-4 text-zinc-400">
+            <a href="/terms" className="hover:text-indigo-300 underline underline-offset-2 transition-colors">
+              Оферта и реквизиты
+            </a>
+            <a href="mailto:themoon902448@gmail.com" className="hover:text-indigo-300 transition-colors">
+              Поддержка: themoon902448@gmail.com
+            </a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
     </div>
   );
 }
