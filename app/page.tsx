@@ -27,6 +27,8 @@ import {
   Volume2,
   VolumeX,
   FastForward,
+  BookmarkCheck,
+  WifiOff,
 } from "lucide-react";
 
 interface KeyTerm {
@@ -78,12 +80,13 @@ export default function Home() {
   const [highlightedTicketId, setHighlightedTicketId] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"list" | "flashcards">("list");
+  const [viewMode, setViewMode] = useState<"list" | "flashcards" | "digest">("list");
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [history, setHistory] = useState<SavedSession[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
 
   // Экзаменационный таймер
   const [timerInitialSeconds, setTimerInitialSeconds] = useState(120);
@@ -99,6 +102,30 @@ export default function Home() {
   const sampleQuestions = `1. Реляционные базы данных и нормализация (1NF, 2NF, 3NF).
 2. Транзакции и принципы ACID: уровни изоляции.
 3. Индексы в СУБД: B-Tree vs Hash-индексы.`;
+
+  // Регистрация PWA Service Worker + детект оффлайна
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsOffline(!navigator.onLine);
+
+      const handleOnline = () => setIsOffline(false);
+      const handleOffline = () => setIsOffline(true);
+
+      window.addEventListener("online", handleOnline);
+      window.addEventListener("offline", handleOffline);
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/sw.js").catch((err) => {
+          console.warn("SW registration error:", err);
+        });
+      }
+
+      return () => {
+        window.removeEventListener("online", handleOnline);
+        window.removeEventListener("offline", handleOffline);
+      };
+    }
+  }, []);
 
   const playBeep = () => {
     try {
@@ -186,7 +213,6 @@ export default function Home() {
     }
   }, [inputText, answers, learnedIds, history, isHydrated]);
 
-  // Остановка озвучки при уходе со страницы
   useEffect(() => {
     return () => {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -195,7 +221,6 @@ export default function Home() {
     };
   }, []);
 
-  // Управление озвучкой для микронаушника
   const stopSpeech = () => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
@@ -206,7 +231,7 @@ export default function Home() {
   const speakTicket = (item: ExamAnswer, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      alert("Синтез речи не поддерживается данным браузером.");
+      alert("Синтез речи не поддерживается браузером.");
       return;
     }
 
@@ -230,7 +255,6 @@ export default function Home() {
     window.speechSynthesis.speak(utterance);
   };
 
-  // Быстрый переход к номеру билета (Фича 5)
   const jumpToTicket = (item: ExamAnswer) => {
     setOpenCards((prev) => ({ ...prev, [item.id]: true }));
     setHighlightedTicketId(item.id);
@@ -241,12 +265,15 @@ export default function Home() {
         setCurrentCardIndex(idx);
         setIsFlipped(true);
       }
+    } else if (viewMode === "digest") {
+      setTimeout(() => {
+        const el = document.getElementById(`digest-${item.id}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
     } else {
       setTimeout(() => {
         const el = document.getElementById(`ticket-${item.id}`);
-        if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 50);
     }
 
@@ -430,6 +457,12 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
+            {isOffline && (
+              <span className="hidden sm:inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                <WifiOff className="w-3 h-3" /> Офлайн
+              </span>
+            )}
+
             <button
               type="button"
               onClick={() => setShowTimerWidget(!showTimerWidget)}
@@ -441,7 +474,7 @@ export default function Home() {
             >
               <Timer className="w-3.5 h-3.5" />
               <span>
-                {isTimerRunning ? formatTime(timeLeft) : "Таймер ответа"}
+                {isTimerRunning ? formatTime(timeLeft) : "Таймер"}
               </span>
             </button>
 
@@ -458,6 +491,16 @@ export default function Home() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6 md:py-8">
+        {/* Баннер офлайн-режима при отключении сети */}
+        {isOffline && (
+          <div className="no-print mb-4 p-3 rounded-xl bg-amber-950/40 border border-amber-800/60 flex items-center gap-2.5 text-xs text-amber-200">
+            <WifiOff className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <span>
+              Связь пропала, но всё работает! PWA-кэш сохраняет открытые билеты и функционал офлайн.
+            </span>
+          </div>
+        )}
+
         {/* Панель таймера */}
         {showTimerWidget && (
           <div className="no-print mb-6 rounded-2xl border border-indigo-500/40 bg-zinc-900/95 p-4 md:p-5 shadow-2xl backdrop-blur-md">
@@ -652,7 +695,7 @@ export default function Home() {
             <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
               <span className="text-xs text-zinc-500">
                 {inputText.trim().length === 0
-                  ? "Автосохранение включено • Экзаменационный секундомер • Аудио-суфлёр"
+                  ? "Офлайн-PWA включен • Секундомер • Аудио-суфлёр • Сводка формул"
                   : `Символов: ${inputText.trim().length} • Сохранено в браузере`}
               </span>
 
@@ -669,7 +712,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Прогресс, быстрый поиск и нумпад перехода */}
+        {/* Прогресс, нумпад и переключатель режимов */}
         {answers.length > 0 && (
           <section className="no-print mb-6 space-y-4">
             <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/40 p-4">
@@ -687,15 +730,15 @@ export default function Home() {
               </div>
             </div>
 
-            {/* ФИЧА 5: НУМПАД БЫСТРОГО ПЕРЕХОДА К НОМЕРУ БИЛЕТА */}
+            {/* НУМПАД БЫСТРОГО ПЕРЕХОДА */}
             <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-3.5 backdrop-blur-sm">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
                   <FastForward className="w-3.5 h-3.5" />
-                  Прыжок к билету (вытянул в аудитории):
+                  Прыжок к билету:
                 </span>
                 <span className="text-[11px] text-zinc-500">
-                  Клик открывает и подсвечивает билет
+                  Мгновенный скролл и подсветка
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
@@ -714,7 +757,6 @@ export default function Home() {
                           ? "bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/80"
                           : "bg-zinc-800/90 border border-zinc-700/60 text-zinc-300 hover:bg-indigo-600 hover:text-white"
                       }`}
-                      title={`Перейти к вопросу #${item.questionNumber}: ${item.question}`}
                     >
                       {item.questionNumber}
                     </button>
@@ -733,7 +775,7 @@ export default function Home() {
                     setSearchQuery(e.target.value);
                     setCurrentCardIndex(0);
                   }}
-                  placeholder="Быстрый поиск по билетам, терминам и шпорам..."
+                  placeholder="Поиск по билетам, формулам, терминам..."
                   className="w-full pl-10 pr-9 py-2 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs md:text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
                 />
                 {searchQuery && (
@@ -747,6 +789,7 @@ export default function Home() {
                 )}
               </div>
 
+              {/* ПЕРЕКЛЮЧАТЕЛЬ 3 РЕЖИМОВ: СПИСОК / ТРЕНАЖЕР / СВОДКА (ФИЧА 1) */}
               <div className="flex items-center gap-2 self-end md:self-auto">
                 <div className="inline-flex rounded-xl bg-zinc-900 p-1 border border-zinc-800">
                   <button
@@ -776,6 +819,18 @@ export default function Home() {
                     <Layers className="w-3.5 h-3.5" />
                     <span>Тренажёр</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("digest")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      viewMode === "digest"
+                        ? "bg-indigo-600 text-white shadow"
+                        : "text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    <BookmarkCheck className="w-3.5 h-3.5" />
+                    <span>Шпаргалка (Сводка)</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -788,7 +843,9 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-indigo-400" />
               <h2 className="text-sm font-bold tracking-tight text-white">
-                Разобранные вопросы ({filteredAnswers.length})
+                {viewMode === "digest"
+                  ? `Сводка формул и определений (${filteredAnswers.length} билетов)`
+                  : `Разобранные вопросы (${filteredAnswers.length})`}
               </h2>
             </div>
 
@@ -824,6 +881,61 @@ export default function Home() {
           {answers.length > 0 && filteredAnswers.length === 0 && (
             <div className="rounded-2xl border border-dashed border-zinc-800/80 p-10 text-center text-zinc-400 text-sm">
               По запросу «{searchQuery}» ничего не найдено.
+            </div>
+          )}
+
+          {/* ФИЧА 1: РЕЖИМ СВОДКИ (ДАЙДЖЕСТ ФОРМУЛ И ТЕРМИНОВ) */}
+          {viewMode === "digest" && (
+            <div className="space-y-4">
+              {filteredAnswers.map((item) => (
+                <div
+                  key={`digest-${item.id}`}
+                  id={`digest-${item.id}`}
+                  className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4 md:p-5 scroll-mt-24"
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="w-6 h-6 rounded-md bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs flex items-center justify-center font-bold">
+                      {item.questionNumber}
+                    </span>
+                    <h3 className="text-sm font-bold text-white truncate">
+                      {item.question}
+                    </h3>
+                  </div>
+
+                  {/* Сетка терминов и определений */}
+                  {item.keyTerms && item.keyTerms.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                      {item.keyTerms.map((term, idx) => (
+                        <div
+                          key={idx}
+                          className="bg-zinc-950/70 border border-zinc-800/80 rounded-xl p-3 text-xs"
+                        >
+                          <span className="font-bold text-cyan-400 block mb-0.5">
+                            {term.term}
+                          </span>
+                          <span className="text-zinc-300 leading-relaxed">
+                            {term.definition}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-zinc-500 mb-2 italic">
+                      Ключевые термины отсутствуют
+                    </p>
+                  )}
+
+                  {/* Главный тезис-формула */}
+                  <div className="rounded-xl bg-zinc-950/40 border border-zinc-800/60 p-3 text-xs">
+                    <span className="font-bold text-emerald-400 block mb-1 uppercase tracking-wider text-[10px]">
+                      Суть ответа в 1 тезис:
+                    </span>
+                    <span className="text-zinc-200 font-medium">
+                      {item.answerGrade5.thesis}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -998,7 +1110,6 @@ export default function Home() {
                       </div>
 
                       <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
-                        {/* Кнопка озвучки для микронаушника (ФИЧА 1) */}
                         <button
                           type="button"
                           onClick={(e) => speakTicket(item, e)}
@@ -1145,7 +1256,7 @@ export default function Home() {
         </section>
       </main>
 
-      {/* ПЛАВАЮЩИЙ ПЛЕЕР СУФЛЕРА В НАУШНИК (видимый при включенной диктовке) */}
+      {/* Плеер суфлера */}
       {speakingId && (
         <aside aria-label="Плеер аудио-суфлёра" className="no-print fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-2xl border border-indigo-500/60 bg-zinc-900/95 p-3 shadow-2xl backdrop-blur-md">
           <div className="flex items-center gap-2">
