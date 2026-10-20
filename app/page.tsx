@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Sparkles,
   BookOpen,
@@ -21,6 +21,10 @@ import {
   ChevronRight,
   Eye,
   X,
+  Timer,
+  Play,
+  Pause,
+  Volume2,
 } from "lucide-react";
 
 interface KeyTerm {
@@ -70,7 +74,6 @@ export default function Home() {
   const [learnedIds, setLearnedIds] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Новые состояния: поиск, режим карточек, история
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "flashcards">("list");
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -79,11 +82,70 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
 
+  // Состояние экзаменационного таймера
+  const [timerInitialSeconds, setTimerInitialSeconds] = useState(120); // По умолчанию 2 мин
+  const [timeLeft, setTimeLeft] = useState(120);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [showTimerWidget, setShowTimerWidget] = useState(false);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const sampleQuestions = `1. Реляционные базы данных и нормализация (1NF, 2NF, 3NF).
 2. Транзакции и принципы ACID: уровни изоляции.
 3. Индексы в СУБД: B-Tree vs Hash-индексы.`;
 
-  // 1. Загрузка сохраненных данных из localStorage при старте
+  // Звуковой сигнал завершения через AudioContext браузера (без внешних файлов)
+  const playBeep = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // Ре (D5)
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.8);
+    } catch {
+      // Игнорируем в браузерах с блокировкой автозвука
+    }
+  };
+
+  // Логика тиканья таймера
+  useEffect(() => {
+    if (isTimerRunning) {
+      timerIntervalRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerIntervalRef.current!);
+            setIsTimerRunning(false);
+            playBeep();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+    }
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [isTimerRunning]);
+
+  const setTimerDuration = (seconds: number) => {
+    setIsTimerRunning(false);
+    setTimerInitialSeconds(seconds);
+    setTimeLeft(seconds);
+  };
+
+  const resetTimer = () => {
+    setIsTimerRunning(false);
+    setTimeLeft(timerInitialSeconds);
+  };
+
+  // Загрузка из localStorage
   useEffect(() => {
     try {
       const savedInput = localStorage.getItem(STORAGE_KEYS.CURRENT_INPUT);
@@ -108,7 +170,7 @@ export default function Home() {
     }
   }, []);
 
-  // 2. Автосохранение текущих данных при каждом изменении
+  // Автосохранение
   useEffect(() => {
     if (!isHydrated) return;
     try {
@@ -148,7 +210,6 @@ export default function Home() {
       });
       setOpenCards(initialOpenState);
 
-      // Сохраняем разбор в историю (до 10 последних сессий)
       if (data.length > 0) {
         const firstQuestion = data[0].question;
         const sessionTitle =
@@ -240,7 +301,6 @@ export default function Home() {
     window.print();
   };
 
-  // Живая фильтрация билетов по поисковому запросу
   const filteredAnswers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return answers;
@@ -258,7 +318,6 @@ export default function Home() {
     });
   }, [answers, searchQuery]);
 
-  // Статистика прогресса
   const learnedCount = useMemo(() => {
     return answers.filter((a) => learnedIds[a.id]).length;
   }, [answers, learnedIds]);
@@ -271,6 +330,13 @@ export default function Home() {
     filteredAnswers.every((item) => openCards[item.id]);
 
   const activeFlashcard = filteredAnswers[currentCardIndex] || null;
+
+  // Форматирование времени секундомера (MM:SS)
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  };
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-medium selection:bg-indigo-500/30 selection:text-indigo-200">
@@ -292,6 +358,22 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Кнопка таймера в шапке */}
+            <button
+              type="button"
+              onClick={() => setShowTimerWidget(!showTimerWidget)}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border transition-colors cursor-pointer ${
+                showTimerWidget || isTimerRunning
+                  ? "bg-indigo-600/20 border-indigo-500/60 text-indigo-300"
+                  : "bg-zinc-800/90 hover:bg-zinc-700/80 border-zinc-700/60 text-zinc-200"
+              }`}
+            >
+              <Timer className="w-3.5 h-3.5" />
+              <span>
+                {isTimerRunning ? formatTime(timeLeft) : "Таймер ответа"}
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={() => setShowHistory(!showHistory)}
@@ -300,15 +382,105 @@ export default function Home() {
               <History className="w-3.5 h-3.5 text-indigo-400" />
               <span>История ({history.length})</span>
             </button>
-
-            <span className="hidden sm:inline-block text-xs px-2.5 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400">
-              v2.0 Pro
-            </span>
           </div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6 md:py-8">
+        {/* ПАНЕЛЬ ТАЙМЕРА ОТВЕТА */}
+        {showTimerWidget && (
+          <div className="no-print mb-6 rounded-2xl border border-indigo-500/40 bg-zinc-900/95 p-4 md:p-5 shadow-2xl backdrop-blur-md">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Timer className="w-4 h-4 text-indigo-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-200">
+                  Таймер устного ответа перед преподавателем
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTimerWidget(false)}
+                className="p-1 text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+              <div className="flex items-baseline gap-3">
+                <span
+                  className={`text-4xl font-extrabold font-mono tracking-tight ${
+                    timeLeft === 0
+                      ? "text-rose-500 animate-pulse"
+                      : timeLeft <= 15
+                      ? "text-amber-400"
+                      : "text-white"
+                  }`}
+                >
+                  {formatTime(timeLeft)}
+                </span>
+                <span className="text-xs text-zinc-500">
+                  {timeLeft === 0
+                    ? "Время вышло!"
+                    : isTimerRunning
+                    ? "Идет ответ..."
+                    : "Пауза"}
+                </span>
+              </div>
+
+              {/* Выбор времени */}
+              <div className="flex items-center gap-1.5">
+                {[60, 120, 180].map((sec) => (
+                  <button
+                    key={sec}
+                    type="button"
+                    onClick={() => setTimerDuration(sec)}
+                    className={`px-2.5 py-1 text-xs rounded-lg border transition-colors cursor-pointer ${
+                      timerInitialSeconds === sec && timeLeft !== 0
+                        ? "bg-indigo-600 border-indigo-500 text-white font-bold"
+                        : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    {sec / 60} мин
+                  </button>
+                ))}
+              </div>
+
+              {/* Кнопки управления таймером */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTimerRunning(!isTimerRunning)}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                    isTimerRunning
+                      ? "bg-amber-500 hover:bg-amber-400 text-zinc-950"
+                      : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30"
+                  }`}
+                >
+                  {isTimerRunning ? (
+                    <>
+                      <Pause className="w-3.5 h-3.5" /> Пауза
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5" /> Старт
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={resetTimer}
+                  title="Сбросить время"
+                  className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Выпадающая панель истории разборов */}
         {showHistory && (
           <div className="no-print mb-6 rounded-2xl border border-indigo-500/30 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur-md">
@@ -411,7 +583,7 @@ export default function Home() {
             <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
               <span className="text-xs text-zinc-500">
                 {inputText.trim().length === 0
-                  ? "Автосохранение включено • Минимум 4 символа"
+                  ? "Автосохранение включено • Таймер устного ответа"
                   : `Символов: ${inputText.trim().length} • Сохранено в памяти`}
               </span>
 
@@ -428,10 +600,9 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Прогресс-бар и панель инструментов */}
+        {/* Прогресс-бар и инструменты */}
         {answers.length > 0 && (
           <section className="no-print mb-6 space-y-4">
-            {/* Полоса прогресса изучения */}
             <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/40 p-4">
               <div className="flex items-center justify-between text-xs mb-2">
                 <span className="text-zinc-300 font-semibold">
@@ -447,9 +618,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Поиск и переключатель режимов */}
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-              {/* Поле быстрого поиска */}
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -473,7 +642,6 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Переключатель: Список vs Карточки */}
               <div className="flex items-center gap-2 self-end md:self-auto">
                 <div className="inline-flex rounded-xl bg-zinc-900 p-1 border border-zinc-800">
                   <button
@@ -509,7 +677,7 @@ export default function Home() {
           </section>
         )}
 
-        {/* Основная секция вывода */}
+        {/* Вывод ответов */}
         <section>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -554,7 +722,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* РЕЖИМ 1: ТРЕНАЖЁР КАРТОЧЕК (FLASHCARDS) */}
+          {/* FLASHCARDS */}
           {viewMode === "flashcards" && activeFlashcard && (
             <div className="no-print my-4">
               <div
@@ -625,7 +793,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Навигация по карточкам */}
               <div className="flex items-center justify-between mt-4">
                 <button
                   type="button"
@@ -662,7 +829,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* РЕЖИМ 2: СПИСОК С ПЛАВНЫМ АККОРДЕОНОМ */}
+          {/* СПИСОК */}
           {viewMode === "list" && (
             <div className="space-y-4">
               {filteredAnswers.map((item) => {
