@@ -1,29 +1,70 @@
 import { NextResponse } from "next/server";
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
-async function getGigaChatToken(authKey: string): Promise<string> {
-  const cleanKey = authKey.replace(/^Basic\s+/i, "").trim();
-  const rqUID = crypto.randomUUID();
+// Функция восстановления незавершенного JSON при обрыве токенов
+function repairJsonArray(jsonString: string): any[] {
+  let cleaned = jsonString.trim();
 
-  const response = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
+  // Срезаем Markdown-обертки
+  if (cleaned.startsWith("```json")) {
+    cleaned = cleaned.replace(/^```json/, "");
+  } else if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```/, "");
+  }
+  if (cleaned.endsWith("```")) {
+    cleaned = cleaned.replace(/```\$/, "");
+  }
+  cleaned = cleaned.trim();
+
+  // Попытка прямого парсинга
+  try {
+    const directParsed = JSON.parse(cleaned);
+    if (Array.isArray(directParsed)) return directParsed;
+  } catch (e) {
+    // Если упало — ищем последний полностью закрытый объект билета
+    const lastObjectEnd = cleaned.lastIndexOf("}");
+    if (lastObjectEnd !== -1) {
+      const truncated = cleaned.slice(0, lastObjectEnd + 1).trim();
+      const fixed = truncated.endsWith("]") ? truncated : truncated + "]";
+      try {
+        const repaired = JSON.parse(fixed);
+        if (Array.isArray(repaired)) return repaired;
+      } catch (err) {
+        console.error("Failed to repair JSON automatically:", err);
+      }
+    }
+  }
+
+  throw new Error("Не удалось распарсить ответ нейросети в формат JSON");
+}
+
+async function getGigaChatToken(): Promise<string> {
+  const credentials = process.env.GIGACHAT_CREDENTIALS;
+  if (!credentials) {
+    throw new Error("GIGACHAT_CREDENTIALS не задан в переменных окружения");
+  }
+
+  const res = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
-      RqUID: rqUID,
-      Authorization: `Basic ${cleanKey}`,
+      RqUID: `rquid-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      Authorization: `Basic ${credentials}`,
     },
     body: "scope=GIGACHAT_API_PERS",
     cache: "no-store",
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Ошибка OAuth Сбера (${response.status}): ${errorText}`);
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("GigaChat OAuth error:", errText);
+    throw new Error("Ошибка авторизации в GigaChat");
   }
 
-  const data = await response.json();
+  const data = await res.json();
   return data.access_token;
 }
 
@@ -31,101 +72,81 @@ export async function POST(req: Request) {
   try {
     const { questionsText } = await req.json();
 
-    if (!questionsText || typeof questionsText !== "string") {
+    if (!questionsText || questionsText.trim().length === 0) {
       return NextResponse.json(
-        { error: "Список вопросов пуст" },
+        { error: "Пустой список вопросов" },
         { status: 400 }
       );
     }
 
-    const authKey = process.env.GIGACHAT_AUTH_KEY;
-    if (!authKey) {
-      return NextResponse.json(
-        { error: "Не задан GIGACHAT_AUTH_KEY" },
-        { status: 500 }
-      );
+    const token = await getGigaChatToken();
+
+    const systemPrompt = `Ты — эксперт по подготовке студентов. Сформируй предельно краткие, емкие микрошпаргалки без вводных фраз.
+ФОРМАТ: Строго чистый массив JSON. Никакого Markdown, никаких комментариев вне JSON.
+Пиши лаконично (до 3-4 предложений на ответ), чтобы уложиться в лимит токенов.
+
+Шаблон структуры:
+[
+  {
+    "id": "q1",
+    "questionNumber": 1,
+    "question": "Точный текст вопроса",
+    "category": "Предмет",
+    "readTimeMinutes": 1,
+    "essence": ["Тезис 1", "Тезис 2"],
+    "keyTerms": [
+      {"term": "Термин", "definition": "Краткое определение"}
+    ],
+    "answerGrade5": {
+      "thesis": "Главная мысль в одно предложение",
+      "structure": ["Пункт 1", "Пункт 2"],
+      "fullAnswer": "Краткий, структурированный ответ без воды (3-4 предложения).",
+      "examinerTips": "Главная формула или лайфхак"
     }
-
-    const accessToken = await getGigaChatToken(authKey);
-
-    const systemPrompt = `Ты — профессор университета. Твоя задача — написать реальные, подробные и точные академические ответы на экзаменационные вопросы студента.
-ЗАПРЕЩЕНО писать заглушки вроде "Термин 1", "Определение термина" или "Развернутый ответ". Заполняй все поля настоящими фактами, определениями и теорией по теме каждого вопроса!
-
-Верни ответ СТРОГО в формате JSON-массива объектов.
-Схема каждого объекта в массиве:
-{
-  "id": "уникальная строка, например q-1",
-  "questionNumber": число (порядковый номер вопроса),
-  "question": "точный текст вопроса пользователя",
-  "category": "название предмета по смыслу вопроса",
-  "readTimeMinutes": число от 2 до 5,
-  "essence": [
-    "первый главный факт или формула по теме вопроса",
-    "второй ключевой принцип работы или классификация",
-    "третий важный тезис без воды"
-  ],
-  "keyTerms": [
-    {
-      "term": "настоящий научный термин из этого вопроса",
-      "definition": "четкое словарное определение этого термина"
-    },
-    {
-      "term": "второй важный термин по теме",
-      "definition": "четкое словарное определение второго термина"
-    }
-  ],
-  "answerGrade5": {
-    "thesis": "сильная вступительная фраза, с которой нужно начать ответ перед преподавателем",
-    "structure": ["1. Пункт плана", "2. Пункт плана", "3. Пункт плана"],
-    "fullAnswer": "подробный, связный теоретический ответ на 5-7 предложений с объяснением сути, механизмов работы и примерами",
-    "examinerTips": "хитрый вопрос, который может задать преподаватель по этой теме, и краткий ответ на него"
   }
-}`;
+]`;
 
-    const userPrompt = `Разбери следующие экзаменационные вопросы и напиши полные ответы по каждому из них в формате JSON-массива:\n\n${questionsText}`;
-
-    const chatResponse = await fetch(
+    const response = await fetch(
       "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           model: "GigaChat",
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
+            { role: "user", content: `Разбери следующие вопросы:\n${questionsText}` },
           ],
-          temperature: 0.4,
+          temperature: 0.2,
+          max_tokens: 4000,
         }),
       }
     );
 
-    if (!chatResponse.ok) {
-      const errorText = await chatResponse.text();
-      throw new Error(`Ошибка GigaChat (${chatResponse.status}): ${errorText}`);
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error("GigaChat Completion error:", errorData);
+      return NextResponse.json(
+        { error: "Ошибка запроса к нейросети" },
+        { status: 502 }
+      );
     }
 
-    const chatData = await chatResponse.json();
-    const rawContent = chatData.choices?.[0]?.message?.content || "[]";
+    const result = await response.json();
+    const rawContent = result.choices?.[0]?.message?.content || "[]";
 
-    // Извлекаем чистый JSON-массив или объект из ответа
-    const jsonMatch = rawContent.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
-    const jsonString = jsonMatch ? jsonMatch[0] : rawContent;
+    // Безопасный парсинг с восстановлением незакрытых скобок
+    const parsedData = repairJsonArray(rawContent);
 
-    const parsed = JSON.parse(jsonString);
-    const result = Array.isArray(parsed)
-      ? parsed
-      : parsed.answers || parsed.questions || Object.values(parsed)[0];
-
-    return NextResponse.json(Array.isArray(result) ? result : [result]);
-  } catch (error) {
-    console.error("GigaChat API error:", error);
+    return NextResponse.json(parsedData);
+  } catch (error: any) {
+    console.error("API /api/generate error:", error);
     return NextResponse.json(
-      { error: "Не удалось разобрать билеты" },
+      { error: error.message || "Ошибка генерации билетов" },
       { status: 500 }
     );
   }
