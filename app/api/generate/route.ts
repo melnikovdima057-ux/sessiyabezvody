@@ -1,55 +1,13 @@
-Причина ошибки: self-signed certificate in certificate chain (SELF_SIGNED_CERT_IN_CHAIN).   Серверы Сбера (GigaChat) используют сертификаты Минцифры (Russian Trusted Sub CA), которые Node.js на серверах Vercel по умолчанию считает недоверенными, из-за чего системный fetch блокирует защищённое соединение.   Чтобы отключить проверку этих сертификатов на стороне Node.js внутри функции, нужно использовать встроенный агент https с флагом rejectUnauthorized: false вместо стандартного глобального fetch.Исправление файла app/api/generate/route.tsОткрой файл app/api/generate/route.ts на GitHub и замени его содержимое на следующий код:TypeScriptimport { NextResponse } from "next/server";
-import https from "https";
+import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// Агент, пропускающий самоподписанные сертификаты Минцифры
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false,
-});
-
-// Хелпер для запросов через https.request с поддержкой агента
-function sberRequest(url: string, options: any, bodyData?: string): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const parsedUrl = new URL(url);
-    const reqOptions: https.RequestOptions = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port || 443,
-      path: parsedUrl.pathname + parsedUrl.search,
-      method: options.method || "GET",
-      headers: options.headers || {},
-      agent: httpsAgent,
-    };
-
-    const req = https.request(reqOptions, (res) => {
-      let data = "";
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
-      res.on("end", () => {
-        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-          try {
-            resolve(JSON.parse(data));
-          } catch (e) {
-            resolve(data);
-          }
-        } else {
-          reject(new Error(`Status ${res.statusCode}: ${data}`));
-        }
-      });
-    });
-
-    req.on("error", (e) => reject(e));
-
-    if (bodyData) {
-      req.write(bodyData);
-    }
-    req.end();
-  });
+// Разрешаем сертификаты Минцифры для запросов к серверам Сбера
+if (typeof process !== "undefined") {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }
 
-// Восстановление обрезанного JSON при превышении лимита токенов
 function repairJsonArray(jsonString: string): any[] {
   let cleaned = jsonString.trim();
 
@@ -80,7 +38,7 @@ function repairJsonArray(jsonString: string): any[] {
     }
   }
 
-  throw new Error("Не удалось распарсить ответ нейросети в JSON");
+  throw new Error("Не удалось распарсить ответ нейросети в формат JSON");
 }
 
 async function getGigaChatToken(): Promise<string> {
@@ -89,21 +47,26 @@ async function getGigaChatToken(): Promise<string> {
     throw new Error("GIGACHAT_CREDENTIALS / GIGACHAT_AUTH_KEY не задан в переменных окружения");
   }
 
-  const response = await sberRequest(
-    "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-        RqUID: `rquid-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        Authorization: `Basic ${credentials}`,
-      },
+  const res = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+      RqUID: `rquid-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      Authorization: `Basic ${credentials}`,
     },
-    "scope=GIGACHAT_API_PERS"
-  );
+    body: "scope=GIGACHAT_API_PERS",
+    cache: "no-store",
+  });
 
-  return response.access_token;
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("OAuth error:", errText);
+    throw new Error("Ошибка авторизации в GigaChat");
+  }
+
+  const data = await res.json();
+  return data.access_token;
 }
 
 export async function POST(req: Request) {
@@ -121,7 +84,7 @@ export async function POST(req: Request) {
 
     const systemPrompt = `Ты — эксперт по подготовке студентов. Сформируй предельно краткие, емкие микрошпаргалки без вводных фраз.
 ФОРМАТ: Строго чистый массив JSON. Никакого Markdown, никаких комментариев вне JSON.
-Пиши лаконично (до 3-4 предложений на ответ), чтобы уложиться в лимит токенов.
+Пиши лаконично (до 3 предложений на ответ).
 
 Шаблон структуры:
 [
@@ -138,23 +101,13 @@ export async function POST(req: Request) {
     "answerGrade5": {
       "thesis": "Главная мысль в одно предложение",
       "structure": ["Пункт 1", "Пункт 2"],
-      "fullAnswer": "Краткий, структурированный ответ без воды (3-4 предложения).",
+      "fullAnswer": "Краткий, структурированный ответ без воды (до 3 предложений).",
       "examinerTips": "Главная формула или лайфхак"
     }
   }
 ]`;
 
-    const requestBody = JSON.stringify({
-      model: "GigaChat",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `Разбери следующие вопросы:\n${questionsText}` },
-      ],
-      temperature: 0.2,
-      max_tokens: 4000,
-    });
-
-    const result = await sberRequest(
+    const response = await fetch(
       "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
       {
         method: "POST",
@@ -162,12 +115,29 @@ export async function POST(req: Request) {
           "Content-Type": "application/json",
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
-          "Content-Length": Buffer.byteLength(requestBody),
         },
-      },
-      requestBody
+        body: JSON.stringify({
+          model: "GigaChat",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Разбери следующие вопросы:\n${questionsText}` },
+          ],
+          temperature: 0.2,
+          max_tokens: 3000,
+        }),
+      }
     );
 
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error("Completion error:", errorData);
+      return NextResponse.json(
+        { error: "Ошибка запроса к нейросети" },
+        { status: 502 }
+      );
+    }
+
+    const result = await response.json();
     const rawContent = result.choices?.[0]?.message?.content || "[]";
     const parsedData = repairJsonArray(rawContent);
 
