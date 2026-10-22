@@ -2,15 +2,15 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "СессияБезВоды — Генератор микрошпаргалок без воды",
+  title: "ExamZero — Умный генератор микрошпаргалок без воды",
   description:
     "Разбор экзаменационных билетов за 1 минуту: ключевые тезисы, формулы и готовые ответы на оценку «Отлично».",
   openGraph: {
-    title: "СессияБезВоды — Закрой сессию налегке",
+    title: "ExamZero — Закрой сессию без лишней воды",
     description:
-      "Мгновенные микрошпаргалки по билетам через нейросеть. Без лишней воды.",
+      "Мгновенные микрошпаргалки по билетам через нейросеть. Ноль воды, максимум сути.",
     url: "https://sessiyabezvody.vercel.app",
-    siteName: "СессияБезВоды",
+    siteName: "ExamZero",
     locale: "ru_RU",
     type: "website",
   },
