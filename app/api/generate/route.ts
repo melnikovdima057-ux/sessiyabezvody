@@ -48,7 +48,17 @@ async function getGigaChatToken(): Promise<string> {
     throw new Error("GIGACHAT_CREDENTIALS не задан в переменных окружения Vercel");
   }
 
-  const credentials = rawKey.trim();
+  // Очищаем от случайных кавычек, пробелов и префикса "Basic "
+  let cleanedKey = rawKey.trim().replace(/^["']|["']$/g, "");
+  if (cleanedKey.startsWith("Basic ")) {
+    cleanedKey = cleanedKey.replace(/^Basic\s+/, "");
+  }
+
+  // Если ключ содержит двоеточие (raw client_id:secret), кодируем в base64
+  let basicAuthValue = cleanedKey;
+  if (cleanedKey.includes(":") && !/^[A-Za-z0-9+/=]+$/.test(cleanedKey)) {
+    basicAuthValue = Buffer.from(cleanedKey).toString("base64");
+  }
 
   const res = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
     method: "POST",
@@ -56,7 +66,7 @@ async function getGigaChatToken(): Promise<string> {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
       RqUID: `rquid-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      Authorization: `Basic ${credentials}`,
+      Authorization: `Basic ${basicAuthValue}`,
     },
     body: "scope=GIGACHAT_API_PERS",
     cache: "no-store",
