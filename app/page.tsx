@@ -27,8 +27,9 @@ export default function Home() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
 
-  // Статус загрузки файла
+  // Загрузка и распознавание файлов / фото
   const [fileParsing, setFileParsing] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState<number | null>(null);
   const [fileStatus, setFileStatus] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -59,7 +60,22 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [isTimerRunning, timerSeconds]);
 
-  // Динамическая подгрузка парсера для .docx без npm-зависимостей
+  // Быстрая вставка скриншота из буфера обмена (Ctrl + V)
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (e.clipboardData && e.clipboardData.files.length > 0) {
+        const file = e.clipboardData.files[0];
+        if (file.type.startsWith("image/")) {
+          e.preventDefault();
+          processFile(file);
+        }
+      }
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, []);
+
+  // Динамическая загрузка Mammoth для Word
   const loadMammoth = (): Promise<any> => {
     return new Promise((resolve, reject) => {
       if ((window as any).mammoth) return resolve((window as any).mammoth);
@@ -72,10 +88,25 @@ export default function Home() {
     });
   };
 
+  // Динамическая загрузка Tesseract OCR для фото
+  const loadTesseract = (): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      if ((window as any).Tesseract) return resolve((window as any).Tesseract);
+      const script = document.createElement("script");
+      script.src =
+        "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+      script.onload = () => resolve((window as any).Tesseract);
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  };
+
   const processFile = async (file: File) => {
     const fileName = file.name.toLowerCase();
+    const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/.test(fileName);
     setFileParsing(true);
     setFileStatus(null);
+    setOcrProgress(null);
 
     try {
       if (fileName.endsWith(".txt")) {
@@ -93,14 +124,33 @@ export default function Home() {
           .join("\n");
         setInputText(cleanLines);
         setFileStatus(`Файл "${file.name}" загружен!`);
+      } else if (isImage) {
+        setFileStatus("Загрузка OCR и распознавание фото...");
+        const Tesseract = await loadTesseract();
+        const res = await Tesseract.recognize(file, "rus+eng", {
+          logger: (m: any) => {
+            if (m.status === "recognizing text" && m.progress) {
+              setOcrProgress(Math.round(m.progress * 100));
+            }
+          },
+        });
+        const recognized = res.data.text
+          .split("\n")
+          .map((l: string) => l.trim())
+          .filter((l: string) => l.length > 2)
+          .join("\n");
+
+        setInputText(recognized);
+        setFileStatus("Фото с доски успешно распознано!");
       } else {
-        alert("Поддерживаются только форматы .docx и .txt");
+        alert("Поддерживаются форматы: .docx, .txt или фото (.png, .jpg, .webp)");
       }
     } catch (err) {
       console.error(err);
-      alert("Не удалось прочитать файл. Проверь формат документа.");
+      alert("Не удалось обработать файл или фото. Попробуй сделать фото более четким.");
     } finally {
       setFileParsing(false);
+      setOcrProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -259,7 +309,7 @@ export default function Home() {
       </header>
 
       <div className="max-w-5xl mx-auto mt-6 grid grid-cols-1 md:grid-cols-12 gap-6">
-        {/* Поле ввода и загрузка файла */}
+        {/* Поле ввода и загрузка файла/фото */}
         <section className="md:col-span-5 flex flex-col gap-4">
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-lg">
             <div className="flex justify-between items-center mb-2">
@@ -270,7 +320,7 @@ export default function Home() {
                 <input
                   type="file"
                   ref={fileInputRef}
-                  accept=".docx,.txt"
+                  accept=".docx,.txt,image/*"
                   className="hidden"
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
@@ -283,7 +333,7 @@ export default function Home() {
                   onClick={() => fileInputRef.current?.click()}
                   className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 transition-colors"
                 >
-                  📎 {fileParsing ? "Читаю файл..." : "Загрузить Word / .txt"}
+                  📷 Фото / Word / .txt
                 </button>
               </div>
             </div>
@@ -308,13 +358,24 @@ export default function Home() {
                   setInputText(e.target.value);
                   if (fileStatus) setFileStatus(null);
                 }}
-                placeholder="Вставь вопросы или просто перетащи сюда файл Word (.docx) / .txt..."
+                placeholder="Вставь вопросы, перетащи файл Word / фото или нажми Ctrl+V со скриншотом..."
                 rows={8}
                 className="w-full bg-[#14181f] border border-gray-700 rounded-lg p-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 resize-none"
               />
             </div>
 
-            {fileStatus && (
+            {fileParsing && (
+              <div className="mt-2 text-xs text-indigo-400 flex items-center gap-1.5 font-medium">
+                <span className="animate-spin">⏳</span>
+                <span>
+                  {ocrProgress !== null
+                    ? `Распознавание фото: ${ocrProgress}%...`
+                    : "Обработка документа..."}
+                </span>
+              </div>
+            )}
+
+            {fileStatus && !fileParsing && (
               <div className="mt-2 text-xs text-emerald-400 flex items-center gap-1">
                 <span>✓</span> {fileStatus}
               </div>
@@ -457,12 +518,12 @@ export default function Home() {
             </div>
           ) : (
             <div className="bg-gray-900 border border-gray-800 p-12 rounded-xl text-center flex flex-col items-center justify-center text-gray-500 min-h-[350px]">
-              <div className="text-3xl mb-2">📖</div>
+              <div className="text-3xl mb-2">📷</div>
               <p className="text-sm">
-                Вставь список вопросов слева или перетащи файл Word
+                Вставь вопросы, перетащи файл Word или фото с доски
               </p>
               <p className="text-xs text-gray-600 mt-1">
-                Шпаргалка мгновенно покажет суть, термины и готовую формулировку для ответа
+                Или просто сделай скриншот списка и нажми Ctrl+V
               </p>
             </div>
           )}
