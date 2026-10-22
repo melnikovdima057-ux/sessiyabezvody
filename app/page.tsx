@@ -25,6 +25,7 @@ export default function Home() {
   const [selectedTicket, setSelectedTicket] = useState<TicketItem | null>(null);
   const [hasPaid, setHasPaid] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
 
   // Поиск
@@ -114,7 +115,8 @@ export default function Home() {
 
   const processFile = async (file: File) => {
     const fileName = file.name.toLowerCase();
-    const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/.test(fileName);
+    const isImage =
+      file.type.startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/.test(fileName);
     setFileParsing(true);
     setFileStatus(null);
     setOcrProgress(null);
@@ -301,19 +303,26 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-4 md:p-8 font-sans">
-      {/* Хедер ExamZero */}
+      {/* Хедер с кликабельным логотипом ExamZero */}
       <header className="max-w-5xl mx-auto flex justify-between items-center pb-6 border-b border-gray-800">
         <div>
-          <h1 className="text-xl md:text-2xl font-black tracking-tight text-white flex items-center gap-2">
-            <span className="text-indigo-500">Exam</span>Zero
-            <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-700/60 px-1.5 py-0.5 rounded font-mono uppercase">
-              AI
+          <button
+            onClick={() => setShowAboutModal(true)}
+            className="group text-left flex items-center gap-2 transition-transform active:scale-95"
+            title="Нажми, чтобы узнать всё о сервисе"
+          >
+            <h1 className="text-xl md:text-2xl font-black tracking-tight text-white flex items-center gap-1.5 group-hover:text-indigo-400 transition-colors">
+              <span className="text-indigo-500 group-hover:text-indigo-300">Exam</span>Zero
+            </h1>
+            <span className="text-[10px] bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 px-1.5 py-0.5 rounded font-mono uppercase group-hover:border-indigo-400 group-hover:bg-indigo-900 transition-colors">
+              AI ℹ️
             </span>
-          </h1>
-          <p className="text-xs md:text-sm text-gray-400">
+          </button>
+          <p className="text-xs md:text-sm text-gray-400 mt-0.5">
             Микрошпаргалки без воды • Ноль лишней теории
           </p>
         </div>
+
         <div className="flex items-center gap-3">
           <div className="bg-gray-900 border border-gray-700 px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-mono">
             ⏱ {Math.floor(timerSeconds / 60)}:
@@ -584,6 +593,74 @@ export default function Home() {
         </section>
       </div>
 
+      {/* Окно «О сервисе ExamZero» */}
+      {showAboutModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#11141a] border border-gray-800 w-full max-w-lg rounded-2xl p-6 shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-start pb-3 border-b border-gray-800">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-1.5">
+                  ⚡ О сервисе <span className="text-indigo-400">ExamZero</span>
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Твой личный ИИ-ассистент для быстрой сдачи зачётов и сессии
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAboutModal(false)}
+                className="text-gray-400 hover:text-white text-lg p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs text-gray-300 leading-relaxed">
+              <div className="bg-[#171b23] p-3 rounded-xl border border-gray-800/80">
+                <span className="font-bold text-white text-sm block mb-1">
+                  🎯 Что делает сервис?
+                </span>
+                ExamZero убирает до 90% «воды» из учебников и лекций. Нейросеть GigaChat превращает огромные темы в ёмкие карточки: главная мысль за 1 минуту, академический ответ на 5, формулы и частые подвохи преподавателей.
+              </div>
+
+              <div className="bg-[#171b23] p-3 rounded-xl border border-gray-800/80">
+                <span className="font-bold text-white text-sm block mb-1">
+                  🚀 Встроенные возможности:
+                </span>
+                <ul className="list-disc list-inside space-y-1 text-gray-300">
+                  <li><strong>Загрузка в 1 клик:</strong> вставка текста, файлов Word (.docx), текстовых файлов (.txt) или перетаскивание фото с доски.</li>
+                  <li><strong>OCR и скриншоты:</strong> нажми Ctrl + V со скриншотом в буфере обмена — текст распознается автоматически.</li>
+                  <li><strong>Аудио-суфлёр:</strong> озвучка ответа прямо в беспроводной наушник.</li>
+                  <li><strong>Моментальный поиск (Ctrl + K):</strong> мгновенно находит нужный билет по формулам и терминам прямо на экзамене.</li>
+                  <li><strong>Экзаменационный таймер:</strong> тренировка ответа за 2 минуты.</li>
+                  <li><strong>Экспорт:</strong> готовая разметка для пересылки в Telegram и скачивание в .txt.</li>
+                </ul>
+              </div>
+
+              <div className="bg-[#171b23] p-3 rounded-xl border border-indigo-950/60">
+                <span className="font-bold text-indigo-300 text-sm block mb-1">
+                  💳 Тарифы и оплата:
+                </span>
+                <p className="mb-2">
+                  • <strong>Бесплатно:</strong> разбор первых 2 билетов для проверки качества.<br />
+                  • <strong>ExamZero PRO:</strong> <span className="text-emerald-400 font-bold">49 ₽</span> за весь список билетов без ограничений (разовый доступ).
+                </p>
+                <div className="text-gray-400 pt-2 border-t border-gray-800/80">
+                  <strong>Способы оплаты:</strong> через Систему быстрых платежей (<strong>СБП</strong> в один клик по QR-коду) или любой банковской картой РФ через платёжный шлюз ЮKassa.
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowAboutModal(false)}
+              className="w-full mt-2 py-2.5 bg-indigo-600 hover:bg-indigo-500 font-medium rounded-xl text-xs text-white transition-colors"
+            >
+              Понятно, к билетам!
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Окно оплаты ЮKassa / СБП */}
       {showPayModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-gray-900 border border-gray-800 w-full max-w-sm rounded-2xl p-6 shadow-2xl flex flex-col gap-4 text-center">
