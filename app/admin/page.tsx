@@ -119,6 +119,47 @@ export default function AdminPage() {
     }
   };
 
+  const copyAllForTelegram = () => {
+    if (tickets.length === 0) return;
+    const formatted = tickets
+      .map(
+        (t, idx) =>
+          `📌 *Билет #${t.questionNumber || idx + 1}: ${t.question}*\n\n` +
+          `⚡ *Суть:* ${t.essence?.join("; ") || ""}\n` +
+          `🎓 *Ответ:* ${t.answerGrade5?.fullAnswer || ""}\n` +
+          (t.answerGrade5?.examinerTips
+            ? `💡 *Лайфхак:* ${t.answerGrade5.examinerTips}\n`
+            : "")
+      )
+      .join("\n───────────────\n\n");
+
+    navigator.clipboard.writeText(formatted);
+    alert("Все билеты скопированы с разметкой для Telegram!");
+  };
+
+  const downloadAsTxt = () => {
+    if (tickets.length === 0) return;
+    const textContent = tickets
+      .map(
+        (t, idx) =>
+          `=== БИЛЕТ #${t.questionNumber || idx + 1}: ${t.question} ===\n` +
+          `СУТЬ: ${t.essence?.join("; ") || ""}\n` +
+          `ОТВЕТ НА 5: ${t.answerGrade5?.fullAnswer || ""}\n` +
+          (t.answerGrade5?.examinerTips
+            ? `ЛАЙФХАК: ${t.answerGrade5.examinerTips}\n`
+            : "")
+      )
+      .join("\n\n" + "=".repeat(40) + "\n\n");
+
+    const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "Шпоры_СессияБезВоды_Admin.txt";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (!isAuthenticated) {
     return (
       <main className="min-h-screen bg-[#0d0f12] text-gray-200 flex items-center justify-center p-4">
@@ -266,12 +307,30 @@ export default function AdminPage() {
             </button>
           </div>
 
-          {/* Нумпад для переключения билетов */}
+          {/* Нумпад билетов и быстрые кнопки экспорта */}
           {tickets.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
-                Выбор билета ({tickets.length} готово):
-              </span>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Билеты ({tickets.length} готово):
+                </span>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={copyAllForTelegram}
+                    className="text-[11px] bg-gray-800 hover:bg-gray-700 text-indigo-300 border border-indigo-900/50 px-2 py-1 rounded transition-colors"
+                    title="Скопировать все для Telegram"
+                  >
+                    📋 В ТГ
+                  </button>
+                  <button
+                    onClick={downloadAsTxt}
+                    className="text-[11px] bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-2 py-1 rounded transition-colors"
+                    title="Скачать .txt файл"
+                  >
+                    💾 .txt
+                  </button>
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
                 {tickets.map((t, idx) => {
                   const num = t.questionNumber || idx + 1;
