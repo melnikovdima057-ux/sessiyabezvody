@@ -1,25 +1,32 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin", "cyrillic-ext"],
-  display: "swap",
-});
-
 export const metadata: Metadata = {
-  title: "СессияБезВоды — Сдай предмет за 1 вечер",
-  description: "Минималистичный сервис для студентов: убираем академическую воду, оставляем только суть, термины и готовый ответ на высший балл.",
+  title: "СессияБезВоды — Генератор микрошпаргалок без воды",
+  description:
+    "Разбор экзаменационных билетов за 1 минуту: ключевые тезисы, формулы и готовые ответы на оценку «Отлично».",
+  openGraph: {
+    title: "СессияБезВоды — Закрой сессию налегке",
+    description:
+      "Мгновенные микрошпаргалки по билетам через нейросеть. Без лишней воды.",
+    url: "https://sessiyabezvody.vercel.app",
+    siteName: "СессияБезВоды",
+    locale: "ru_RU",
+    type: "website",
+  },
+  icons: {
+    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>",
+  },
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="ru" className="dark">
-      <body className={`${jakarta.className} bg-[#090a0f] text-zinc-100 antialiased selection:bg-indigo-500/30 selection:text-indigo-200`}>
+    <html lang="ru">
+      <body className="bg-[#0d0f12] text-gray-100 antialiased selection:bg-indigo-500 selection:text-white">
         {children}
       </body>
     </html>
