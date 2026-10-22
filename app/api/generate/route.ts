@@ -8,41 +8,62 @@ if (typeof process !== "undefined") {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }
 
-function repairJsonArray(jsonString: string): any[] {
-  let cleaned = jsonString.trim();
+// Извлечение и ремонт JSON объектов из ответа
+function extractTicketsFromJson(text: string): any[] {
+  let cleaned = text.trim();
 
-  if (cleaned.startsWith("```json")) {
-    cleaned = cleaned.replace(/^```json/, "");
-  } else if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```/, "");
+  // Срезаем Markdown-обёртку ```json ... ```
+  if (cleaned.includes("```")) {
+    cleaned = cleaned.replace(/```json/gi, "").replace(/```/g, "").trim();
   }
-  if (cleaned.endsWith("```")) {
-    cleaned = cleaned.replace(/```$/, "");
-  }
-  cleaned = cleaned.trim();
 
+  // Экранируем одиночные обратные слэши от физических формул (LaTeX)
+  cleaned = cleaned.replace(/\\(?!["\\/bfnrtu])/g, "\\\\");
+
+  // 1. Пробуем прямой парсинг
   try {
-    const directParsed = JSON.parse(cleaned);
-    if (Array.isArray(directParsed)) return directParsed;
+    const direct = JSON.parse(cleaned);
+    if (Array.isArray(direct)) return direct;
+    if (direct && typeof direct === "object") return [direct];
   } catch (e) {
-    const lastObjectEnd = cleaned.lastIndexOf("}");
-    if (lastObjectEnd !== -1) {
-      const truncated = cleaned.slice(0, lastObjectEnd + 1).trim();
-      const fixed = truncated.endsWith("]") ? truncated : truncated + "]";
-      try {
-        const repaired = JSON.parse(fixed);
-        if (Array.isArray(repaired)) return repaired;
-      } catch (err) {
-        console.error("Failed to repair JSON:", err);
+    // Если прямой парсинг упал, переходим к извлечению отдельных объектов
+  }
+
+  // 2. Поштучный парсинг каждого объекта { ... }
+  const tickets: any[] = [];
+  let depth = 0;
+  let startIdx = -1;
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i];
+    if (char === "{") {
+      if (depth === 0) startIdx = i;
+      depth++;
+    } else if (char === "}") {
+      depth--;
+      if (depth === 0 && startIdx !== -1) {
+        const objCandidate = cleaned.slice(startIdx, i + 1);
+        try {
+          const parsedObj = JSON.parse(objCandidate);
+          if (parsedObj.question || parsedObj.answerGrade5 || parsedObj.essence) {
+            tickets.push(parsedObj);
+          }
+        } catch (err) {
+          // Игнорируем повреждённые куски
+        }
+        startIdx = -1;
       }
     }
   }
 
-  throw new Error("Не удалось распарсить ответ нейросети в формат JSON");
+  if (tickets.length > 0) {
+    return tickets;
+  }
+
+  throw new Error("Не удалось извлечь структуру билетов из ответа модели");
 }
 
 async function getGigaChatToken(): Promise<string> {
-  // Берем Ключ авторизации из переменных Vercel
   const rawKey = (
     process.env.GIGACHAT_CREDENTIALS ||
     process.env.GIGACHAT_AUTH_KEY ||
@@ -54,20 +75,18 @@ async function getGigaChatToken(): Promise<string> {
     throw new Error("GIGACHAT_CREDENTIALS не найден в Environment Variables Vercel");
   }
 
-  // Очищаем от случайных пробелов, кавычек и слова Basic
   let basicAuthValue = rawKey
     .replace(/^Basic\s+/i, "")
     .replace(/["']/g, "")
     .trim();
 
-  // Если передан не Base64, а сырая пара client_id:secret (с двоеточием)
   if (basicAuthValue.includes(":") && !/^[A-Za-z0-9+/=]+$/.test(basicAuthValue)) {
     basicAuthValue = Buffer.from(basicAuthValue).toString("base64");
   }
 
   const rquid = crypto.randomUUID();
 
-  const res = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
+  const res = await fetch("[https://ngw.devices.sberbank.ru:9443/api/v2/oauth](https://ngw.devices.sberbank.ru:9443/api/v2/oauth)", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -103,33 +122,36 @@ export async function POST(req: Request) {
 
     const token = await getGigaChatToken();
 
-    const systemPrompt = `Ты — эксперт по подготовке студентов. Сформируй предельно краткие, емкие микрошпаргалки без вводных фраз.
-ФОРМАТ: Строго чистый массив JSON. Никакого Markdown, никаких комментариев вне JSON.
-Пиши лаконично (до 3 предложений на ответ).
+    const systemPrompt = `Ты — эксперт-преподаватель. Составь предельно краткие шпоры по билетам.
+ПРАВИЛА:
+1. Вывод: строго чистый массив JSON. Никаких вводных слов и пояснений.
+2. Все формулы пиши ТОЛЬКО простым текстом без LaTeX и без обратных слэшей (например: p = n*k*T, (p1*V1)/T1 = const).
+3. Избегай двойных кавычек внутри текста (используй «ёлочки»).
+4. На каждый вопрос: 2 тезиса в essence и 2-3 коротких предложения в fullAnswer.
 
 Шаблон структуры:
 [
   {
     "id": "q1",
     "questionNumber": 1,
-    "question": "Точный текст вопроса",
-    "category": "Предмет",
+    "question": "Текст вопроса",
+    "category": "Физика",
     "readTimeMinutes": 1,
     "essence": ["Тезис 1", "Тезис 2"],
     "keyTerms": [
-      {"term": "Термин", "definition": "Краткое определение"}
+      {"term": "Термин", "definition": "Определение или числовое значение"}
     ],
     "answerGrade5": {
-      "thesis": "Главная мысль в одно предложение",
+      "thesis": "Главная суть вопроса",
       "structure": ["Пункт 1", "Пункт 2"],
-      "fullAnswer": "Краткий, структурированный ответ без воды (до 3 предложений).",
-      "examinerTips": "Главная формула или лайфхак"
+      "fullAnswer": "Четкий ответ на 5 без воды (формулы обычным текстом).",
+      "examinerTips": "Главное числовое значение или формула"
     }
   }
 ]`;
 
     const response = await fetch(
-      "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
+      "[https://gigachat.devices.sberbank.ru/api/v1/chat/completions](https://gigachat.devices.sberbank.ru/api/v1/chat/completions)",
       {
         method: "POST",
         headers: {
@@ -141,10 +163,10 @@ export async function POST(req: Request) {
           model: "GigaChat",
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: `Разбери следующие вопросы:\n${questionsText}` },
+            { role: "user", content: `Разбери билеты:\n${questionsText}` },
           ],
-          temperature: 0.2,
-          max_tokens: 3000,
+          temperature: 0.1,
+          max_tokens: 4000,
         }),
       }
     );
@@ -153,14 +175,14 @@ export async function POST(req: Request) {
 
     if (!response.ok) {
       console.error("Completion error:", resText);
-      throw new Error(`Сбер вернул ошибку генерации ${response.status}: ${resText}`);
+      throw new Error(`Ошибка генерации ${response.status}: ${resText}`);
     }
 
     const result = JSON.parse(resText);
     const rawContent = result.choices?.[0]?.message?.content || "[]";
-    const parsedData = repairJsonArray(rawContent);
+    const tickets = extractTicketsFromJson(rawContent);
 
-    return NextResponse.json(parsedData);
+    return NextResponse.json(tickets);
   } catch (error: any) {
     console.error("API /api/generate error:", error);
     return NextResponse.json(
