@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 
 interface TicketItem {
   id: string;
@@ -27,6 +27,10 @@ export default function Home() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
 
+  // Живой поиск
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   // Загрузка и распознавание файлов / фото
   const [fileParsing, setFileParsing] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<number | null>(null);
@@ -45,6 +49,18 @@ export default function Home() {
       setHasPaid(true);
       localStorage.setItem("sessiya_paid", "true");
     }
+  }, []);
+
+  // Горячая клавиша Ctrl+K для мгновенного перехода в поиск
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   // Таймер
@@ -273,6 +289,26 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  // Мгновенная фильтрация по вопросу, сути, формулам и терминам
+  const filteredTickets = useMemo(() => {
+    if (!searchQuery.trim()) return tickets;
+    const query = searchQuery.toLowerCase().trim();
+
+    return tickets.filter((t) => {
+      const matchQuestion = t.question.toLowerCase().includes(query);
+      const matchNum = String(t.questionNumber).includes(query);
+      const matchEssence = t.essence?.some((e) => e.toLowerCase().includes(query));
+      const matchTerms = t.keyTerms?.some(
+        (k) =>
+          k.term.toLowerCase().includes(query) ||
+          k.definition.toLowerCase().includes(query)
+      );
+      const matchAnswer = t.answerGrade5?.fullAnswer.toLowerCase().includes(query);
+
+      return matchQuestion || matchNum || matchEssence || matchTerms || matchAnswer;
+    });
+  }, [tickets, searchQuery]);
+
   return (
     <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-4 md:p-8 font-sans">
       {/* Хедер */}
@@ -309,7 +345,7 @@ export default function Home() {
       </header>
 
       <div className="max-w-5xl mx-auto mt-6 grid grid-cols-1 md:grid-cols-12 gap-6">
-        {/* Поле ввода и загрузка файла/фото */}
+        {/* Поле ввода, фильтр и загрузка файлов */}
         <section className="md:col-span-5 flex flex-col gap-4">
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-lg">
             <div className="flex justify-between items-center mb-2">
@@ -338,7 +374,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Зона перетаскивания и ввода */}
+            {/* Зона ввода */}
             <div
               onDragOver={(e) => {
                 e.preventDefault();
@@ -399,12 +435,39 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Нумпад билетов и кнопки сохранения */}
+          {/* Нумпад билетов, живой поиск и экспорт */}
           {tickets.length > 0 && (
-            <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow">
-              <div className="flex justify-between items-center mb-2">
+            <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow flex flex-col gap-3">
+              {/* Строка быстрого поиска */}
+              <div className="relative">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Поиск по терминам, формулам..."
+                  className="w-full bg-[#14181f] border border-gray-700 rounded-lg pl-8 pr-12 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+                />
+                <span className="absolute left-2.5 top-2.5 text-xs text-gray-500">
+                  🔍
+                </span>
+                {searchQuery ? (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-2 text-xs text-gray-400 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                ) : (
+                  <span className="absolute right-2 top-2 text-[10px] text-gray-500 border border-gray-700 px-1 rounded">
+                    Ctrl+K
+                  </span>
+                )}
+              </div>
+
+              <div className="flex justify-between items-center">
                 <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Билеты ({tickets.length}):
+                  Билеты ({filteredTickets.length} из {tickets.length}):
                 </span>
                 <div className="flex gap-1.5">
                   <button
@@ -423,20 +486,26 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+
               <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto pr-1">
-                {tickets.map((t, idx) => (
+                {filteredTickets.map((t, idx) => (
                   <button
                     key={t.id || idx}
                     onClick={() => setSelectedTicket(t)}
                     className={`h-9 w-9 text-xs font-bold rounded-lg transition-colors border ${
                       selectedTicket?.id === t.id
-                        ? "bg-indigo-600 border-indigo-400 text-white"
+                        ? "bg-indigo-600 border-indigo-400 text-white shadow"
                         : "bg-[#14181f] border-gray-700 text-gray-300 hover:border-gray-500"
                     }`}
                   >
                     {t.questionNumber || idx + 1}
                   </button>
                 ))}
+                {filteredTickets.length === 0 && (
+                  <span className="text-xs text-gray-500 italic py-2">
+                    Ничего не найдено по запросу «{searchQuery}»
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -518,12 +587,12 @@ export default function Home() {
             </div>
           ) : (
             <div className="bg-gray-900 border border-gray-800 p-12 rounded-xl text-center flex flex-col items-center justify-center text-gray-500 min-h-[350px]">
-              <div className="text-3xl mb-2">📷</div>
+              <div className="text-3xl mb-2">🔍</div>
               <p className="text-sm">
                 Вставь вопросы, перетащи файл Word или фото с доски
               </p>
               <p className="text-xs text-gray-600 mt-1">
-                Или просто сделай скриншот списка и нажми Ctrl+V
+                Используй строку поиска или клавиши Ctrl+K для мгновенного нахождения билета
               </p>
             </div>
           )}
