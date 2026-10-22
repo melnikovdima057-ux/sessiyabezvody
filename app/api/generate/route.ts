@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// Разрешаем сертификаты Минцифры для запросов к серверам Сбера
 if (typeof process !== "undefined") {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }
@@ -17,7 +16,7 @@ function repairJsonArray(jsonString: string): any[] {
     cleaned = cleaned.replace(/^```/, "");
   }
   if (cleaned.endsWith("```")) {
-    cleaned = cleaned.replace(/```\$/, "");
+    cleaned = cleaned.replace(/```$/, "");
   }
   cleaned = cleaned.trim();
 
@@ -42,10 +41,14 @@ function repairJsonArray(jsonString: string): any[] {
 }
 
 async function getGigaChatToken(): Promise<string> {
-  const credentials = process.env.GIGACHAT_CREDENTIALS || process.env.GIGACHAT_AUTH_KEY;
-  if (!credentials) {
-    throw new Error("GIGACHAT_CREDENTIALS / GIGACHAT_AUTH_KEY не задан в переменных окружения");
+  const rawKey =
+    process.env.GIGACHAT_CREDENTIALS || process.env.GIGACHAT_AUTH_KEY;
+
+  if (!rawKey) {
+    throw new Error("GIGACHAT_CREDENTIALS не задан в переменных окружения Vercel");
   }
+
+  const credentials = rawKey.trim();
 
   const res = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
     method: "POST",
@@ -59,13 +62,14 @@ async function getGigaChatToken(): Promise<string> {
     cache: "no-store",
   });
 
+  const resText = await res.text();
+
   if (!res.ok) {
-    const errText = await res.text();
-    console.error("OAuth error:", errText);
-    throw new Error("Ошибка авторизации в GigaChat");
+    console.error("OAuth error response:", resText);
+    throw new Error(`Сбер вернул статус ${res.status}: ${resText}`);
   }
 
-  const data = await res.json();
+  const data = JSON.parse(resText);
   return data.access_token;
 }
 
@@ -128,16 +132,14 @@ export async function POST(req: Request) {
       }
     );
 
+    const resText = await response.text();
+
     if (!response.ok) {
-      const errorData = await response.text();
-      console.error("Completion error:", errorData);
-      return NextResponse.json(
-        { error: "Ошибка запроса к нейросети" },
-        { status: 502 }
-      );
+      console.error("Completion error:", resText);
+      throw new Error(`Сбер вернул ошибку генерации ${response.status}: ${resText}`);
     }
 
-    const result = await response.json();
+    const result = JSON.parse(resText);
     const rawContent = result.choices?.[0]?.message?.content || "[]";
     const parsedData = repairJsonArray(rawContent);
 
