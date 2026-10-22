@@ -42,30 +42,29 @@ function repairJsonArray(jsonString: string): any[] {
 }
 
 async function getGigaChatToken(): Promise<string> {
-  const clientId = process.env.GIGACHAT_CLIENT_ID?.trim();
-  const clientSecret = process.env.GIGACHAT_CLIENT_SECRET?.trim();
+  // Берем Ключ авторизации из переменных Vercel
   const rawKey = (
     process.env.GIGACHAT_CREDENTIALS ||
     process.env.GIGACHAT_AUTH_KEY ||
+    process.env.GIGACHAT_CLIENT_SECRET ||
     ""
   ).trim();
 
-  let basicAuthValue = "";
-
-  if (clientId && clientSecret) {
-    basicAuthValue = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-  } else if (rawKey) {
-    let clean = rawKey.replace(/^Basic\s+/i, "").replace(/["']/g, "");
-    if (clean.includes(":")) {
-      basicAuthValue = Buffer.from(clean).toString("base64");
-    } else {
-      basicAuthValue = clean;
-    }
-  } else {
-    throw new Error("Ключи GigaChat не заданы в Environment Variables Vercel");
+  if (!rawKey) {
+    throw new Error("GIGACHAT_CREDENTIALS не найден в Environment Variables Vercel");
   }
 
-  // Генерация строгого UUID v4, требуемого Сбером
+  // Очищаем от случайных пробелов, кавычек и слова Basic
+  let basicAuthValue = rawKey
+    .replace(/^Basic\s+/i, "")
+    .replace(/["']/g, "")
+    .trim();
+
+  // Если передан не Base64, а сырая пара client_id:secret (с двоеточием)
+  if (basicAuthValue.includes(":") && !/^[A-Za-z0-9+/=]+$/.test(basicAuthValue)) {
+    basicAuthValue = Buffer.from(basicAuthValue).toString("base64");
+  }
+
   const rquid = crypto.randomUUID();
 
   const res = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
