@@ -18,9 +18,18 @@ interface TicketItem {
   };
 }
 
+const LOADING_STATUSES = [
+  "Анализируем список вопросов...",
+  "Убираем воду и выделяем суть...",
+  "Формируем ответы на оценку 5...",
+  "Выделяем формулы и определения...",
+  "Почти готово, финализируем билеты...",
+];
+
 export default function Home() {
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [tickets, setTickets] = useState<TicketItem[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<TicketItem | null>(null);
   const [hasPaid, setHasPaid] = useState(false);
@@ -51,6 +60,18 @@ export default function Home() {
       localStorage.setItem("sessiya_paid", "true");
     }
   }, []);
+
+  // Смена статуса на кнопке каждые 5 секунд при загрузке
+  useEffect(() => {
+    let interval: any = null;
+    if (loading) {
+      setLoadingStep(0);
+      interval = setInterval(() => {
+        setLoadingStep((prev) => (prev + 1) % LOADING_STATUSES.length);
+      }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [loading]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -303,7 +324,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-4 md:p-8 font-sans">
-      {/* Хедер с кликабельным логотипом ExamZero */}
+      {/* Хедер с логотипом ExamZero */}
       <header className="max-w-5xl mx-auto flex justify-between items-center pb-6 border-b border-gray-800">
         <div>
           <button
@@ -429,9 +450,16 @@ export default function Home() {
             <button
               onClick={handleGenerate}
               disabled={loading || !inputText.trim() || fileParsing}
-              className="w-full mt-3 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 font-medium rounded-lg text-sm transition-colors flex items-center justify-center gap-2 shadow"
+              className="w-full mt-3 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-400 font-medium rounded-lg text-sm transition-all flex items-center justify-center gap-2 shadow"
             >
-              {loading ? "Разбираем через GigaChat..." : "✨ Разобрать билеты"}
+              {loading ? (
+                <span className="flex items-center gap-2 transition-all">
+                  <span className="animate-spin">⏳</span>
+                  <span>{LOADING_STATUSES[loadingStep]}</span>
+                </span>
+              ) : (
+                "✨ Разобрать билеты"
+              )}
             </button>
           </div>
 
@@ -603,7 +631,7 @@ export default function Home() {
                   ⚡ О сервисе <span className="text-indigo-400">ExamZero</span>
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Твой личный ИИ-ассистент для быстрой сдачи зачётов и сессии
+                  Твой личный ассистент для быстрой сдачи зачётов и сессии
                 </p>
               </div>
               <button
@@ -619,7 +647,7 @@ export default function Home() {
                 <span className="font-bold text-white text-sm block mb-1">
                   🎯 Что делает сервис?
                 </span>
-                ExamZero убирает до 90% «воды» из учебников и лекций. Нейросеть GigaChat превращает огромные темы в ёмкие карточки: главная мысль за 1 минуту, академический ответ на 5, формулы и частые подвохи преподавателей.
+                ExamZero убирает до 90% «воды» из учебников и лекций[cite: 5]. Наш сайт превращает огромные темы в ёмкие карточки: главная мысль за 1 минуту, академический ответ на 5, формулы и частые подвохи преподавателей[cite: 5].
               </div>
 
               <div className="bg-[#171b23] p-3 rounded-xl border border-gray-800/80">
