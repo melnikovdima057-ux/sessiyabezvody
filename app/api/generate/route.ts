@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -64,12 +65,15 @@ async function getGigaChatToken(): Promise<string> {
     throw new Error("Ключи GigaChat не заданы в Environment Variables Vercel");
   }
 
+  // Генерация строгого UUID v4, требуемого Сбером
+  const rquid = crypto.randomUUID();
+
   const res = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
-      RqUID: `rquid-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      RqUID: rquid,
       Authorization: `Basic ${basicAuthValue}`,
     },
     body: "scope=GIGACHAT_API_PERS",
@@ -80,7 +84,7 @@ async function getGigaChatToken(): Promise<string> {
 
   if (!res.ok) {
     console.error("OAuth error response:", resText);
-    throw new Error(`Сбер вернул статус ${res.status}: ${resText} | длина ключа: ${basicAuthValue.length}`);
+    throw new Error(`Сбер вернул статус ${res.status}: ${resText}`);
   }
 
   const data = JSON.parse(resText);
