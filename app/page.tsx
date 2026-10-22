@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 interface TicketItem {
   id: string;
@@ -27,6 +27,12 @@ export default function Home() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
 
+  // Статус загрузки файла
+  const [fileParsing, setFileParsing] = useState(false);
+  const [fileStatus, setFileStatus] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Экзаменационный таймер
   const [timerSeconds, setTimerSeconds] = useState(120);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
@@ -52,6 +58,60 @@ export default function Home() {
     }
     return () => clearInterval(interval);
   }, [isTimerRunning, timerSeconds]);
+
+  // Динамическая подгрузка парсера для .docx без npm-зависимостей
+  const loadMammoth = (): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      if ((window as any).mammoth) return resolve((window as any).mammoth);
+      const script = document.createElement("script");
+      script.src =
+        "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js";
+      script.onload = () => resolve((window as any).mammoth);
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  };
+
+  const processFile = async (file: File) => {
+    const fileName = file.name.toLowerCase();
+    setFileParsing(true);
+    setFileStatus(null);
+
+    try {
+      if (fileName.endsWith(".txt")) {
+        const text = await file.text();
+        setInputText(text.trim());
+        setFileStatus(`Файл "${file.name}" загружен!`);
+      } else if (fileName.endsWith(".docx")) {
+        const mammoth = await loadMammoth();
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        const cleanLines = result.value
+          .split("\n")
+          .map((l: string) => l.trim())
+          .filter(Boolean)
+          .join("\n");
+        setInputText(cleanLines);
+        setFileStatus(`Файл "${file.name}" загружен!`);
+      } else {
+        alert("Поддерживаются только форматы .docx и .txt");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Не удалось прочитать файл. Проверь формат документа.");
+    } finally {
+      setFileParsing(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  };
 
   const handleGenerate = async () => {
     if (!inputText.trim()) return;
@@ -169,7 +229,7 @@ export default function Home() {
       <header className="max-w-5xl mx-auto flex justify-between items-center pb-6 border-b border-gray-800">
         <div>
           <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-            ✨ СессияБезВоды
+            ⚡ СессияБезВоды
           </h1>
           <p className="text-xs md:text-sm text-gray-400">
             Умный генератор микрошпаргалок без воды
@@ -199,19 +259,67 @@ export default function Home() {
       </header>
 
       <div className="max-w-5xl mx-auto mt-6 grid grid-cols-1 md:grid-cols-12 gap-6">
-        {/* Поле ввода и кнопки экспорта */}
+        {/* Поле ввода и загрузка файла */}
         <section className="md:col-span-5 flex flex-col gap-4">
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-lg">
-            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
-              Список билетов или вопросов:
-            </label>
-            <textarea
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Вставь вопросы (каждый с новой строки):&#10;1. Закон Ома&#10;2. Законы термодинамики&#10;3. Сила Архимеда..."
-              rows={8}
-              className="w-full bg-[#14181f] border border-gray-700 rounded-lg p-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 resize-none"
-            />
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Список билетов:
+              </label>
+              <div>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept=".docx,.txt"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      processFile(e.target.files[0]);
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 transition-colors"
+                >
+                  📎 {fileParsing ? "Читаю файл..." : "Загрузить Word / .txt"}
+                </button>
+              </div>
+            </div>
+
+            {/* Зона перетаскивания и ввода */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              className={`relative rounded-lg transition-all ${
+                isDragging
+                  ? "border-2 border-dashed border-indigo-500 bg-indigo-950/20"
+                  : ""
+              }`}
+            >
+              <textarea
+                value={inputText}
+                onChange={(e) => {
+                  setInputText(e.target.value);
+                  if (fileStatus) setFileStatus(null);
+                }}
+                placeholder="Вставь вопросы или просто перетащи сюда файл Word (.docx) / .txt..."
+                rows={8}
+                className="w-full bg-[#14181f] border border-gray-700 rounded-lg p-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 resize-none"
+              />
+            </div>
+
+            {fileStatus && (
+              <div className="mt-2 text-xs text-emerald-400 flex items-center gap-1">
+                <span>✓</span> {fileStatus}
+              </div>
+            )}
+
             <div className="flex justify-between items-center mt-3 text-xs text-gray-400">
               <span>Символов: {inputText.length}</span>
               {hasPaid ? (
@@ -220,9 +328,10 @@ export default function Home() {
                 <span>До 2 билетов бесплатно</span>
               )}
             </div>
+
             <button
               onClick={handleGenerate}
-              disabled={loading || !inputText.trim()}
+              disabled={loading || !inputText.trim() || fileParsing}
               className="w-full mt-3 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 font-medium rounded-lg text-sm transition-colors flex items-center justify-center gap-2 shadow"
             >
               {loading ? "Разбираем через GigaChat..." : "✨ Разобрать билеты"}
@@ -350,7 +459,7 @@ export default function Home() {
             <div className="bg-gray-900 border border-gray-800 p-12 rounded-xl text-center flex flex-col items-center justify-center text-gray-500 min-h-[350px]">
               <div className="text-3xl mb-2">📖</div>
               <p className="text-sm">
-                Вставь список вопросов слева и нажми «Разобрать билеты»
+                Вставь список вопросов слева или перетащи файл Word
               </p>
               <p className="text-xs text-gray-600 mt-1">
                 Шпаргалка мгновенно покажет суть, термины и готовую формулировку для ответа
