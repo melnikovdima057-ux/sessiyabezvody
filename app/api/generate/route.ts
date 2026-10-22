@@ -41,23 +41,27 @@ function repairJsonArray(jsonString: string): any[] {
 }
 
 async function getGigaChatToken(): Promise<string> {
-  const rawKey =
-    process.env.GIGACHAT_CREDENTIALS || process.env.GIGACHAT_AUTH_KEY;
+  const clientId = process.env.GIGACHAT_CLIENT_ID?.trim();
+  const clientSecret = process.env.GIGACHAT_CLIENT_SECRET?.trim();
+  const rawKey = (
+    process.env.GIGACHAT_CREDENTIALS ||
+    process.env.GIGACHAT_AUTH_KEY ||
+    ""
+  ).trim();
 
-  if (!rawKey) {
-    throw new Error("GIGACHAT_CREDENTIALS не задан в переменных окружения Vercel");
-  }
+  let basicAuthValue = "";
 
-  // Очищаем от случайных кавычек, пробелов и префикса "Basic "
-  let cleanedKey = rawKey.trim().replace(/^["']|["']$/g, "");
-  if (cleanedKey.startsWith("Basic ")) {
-    cleanedKey = cleanedKey.replace(/^Basic\s+/, "");
-  }
-
-  // Если ключ содержит двоеточие (raw client_id:secret), кодируем в base64
-  let basicAuthValue = cleanedKey;
-  if (cleanedKey.includes(":") && !/^[A-Za-z0-9+/=]+$/.test(cleanedKey)) {
-    basicAuthValue = Buffer.from(cleanedKey).toString("base64");
+  if (clientId && clientSecret) {
+    basicAuthValue = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  } else if (rawKey) {
+    let clean = rawKey.replace(/^Basic\s+/i, "").replace(/["']/g, "");
+    if (clean.includes(":")) {
+      basicAuthValue = Buffer.from(clean).toString("base64");
+    } else {
+      basicAuthValue = clean;
+    }
+  } else {
+    throw new Error("Ключи GigaChat не заданы в Environment Variables Vercel");
   }
 
   const res = await fetch("https://ngw.devices.sberbank.ru:9443/api/v2/oauth", {
@@ -76,7 +80,7 @@ async function getGigaChatToken(): Promise<string> {
 
   if (!res.ok) {
     console.error("OAuth error response:", resText);
-    throw new Error(`Сбер вернул статус ${res.status}: ${resText}`);
+    throw new Error(`Сбер вернул статус ${res.status}: ${resText} | длина ключа: ${basicAuthValue.length}`);
   }
 
   const data = JSON.parse(resText);
