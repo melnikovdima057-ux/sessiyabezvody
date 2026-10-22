@@ -8,28 +8,24 @@ if (typeof process !== "undefined") {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }
 
-// Извлечение и ремонт JSON объектов из ответа
 function extractTicketsFromJson(text: string): any[] {
   let cleaned = text.trim();
 
-  // Срезаем Markdown-обёртку ```json ... ```
   if (cleaned.includes("```")) {
     cleaned = cleaned.replace(/```json/gi, "").replace(/```/g, "").trim();
   }
 
-  // Экранируем одиночные обратные слэши от физических формул (LaTeX)
+  // Экранируем слэши формул, чтобы не ломать JSON.parse
   cleaned = cleaned.replace(/\\(?!["\\/bfnrtu])/g, "\\\\");
 
-  // 1. Пробуем прямой парсинг
   try {
     const direct = JSON.parse(cleaned);
     if (Array.isArray(direct)) return direct;
     if (direct && typeof direct === "object") return [direct];
   } catch (e) {
-    // Если прямой парсинг упал, переходим к извлечению отдельных объектов
+    // Резервный поштучный парсинг объектов
   }
 
-  // 2. Поштучный парсинг каждого объекта { ... }
   const tickets: any[] = [];
   let depth = 0;
   let startIdx = -1;
@@ -42,25 +38,20 @@ function extractTicketsFromJson(text: string): any[] {
     } else if (char === "}") {
       depth--;
       if (depth === 0 && startIdx !== -1) {
-        const objCandidate = cleaned.slice(startIdx, i + 1);
+        const candidate = cleaned.slice(startIdx, i + 1);
         try {
-          const parsedObj = JSON.parse(objCandidate);
-          if (parsedObj.question || parsedObj.answerGrade5 || parsedObj.essence) {
-            tickets.push(parsedObj);
+          const obj = JSON.parse(candidate);
+          if (obj.question || obj.answerGrade5 || obj.essence) {
+            tickets.push(obj);
           }
-        } catch (err) {
-          // Игнорируем повреждённые куски
-        }
+        } catch (err) {}
         startIdx = -1;
       }
     }
   }
 
-  if (tickets.length > 0) {
-    return tickets;
-  }
-
-  throw new Error("Не удалось извлечь структуру билетов из ответа модели");
+  if (tickets.length > 0) return tickets;
+  throw new Error("Не удалось извлечь билеты из ответа нейросети");
 }
 
 async function getGigaChatToken(): Promise<string> {
@@ -72,7 +63,7 @@ async function getGigaChatToken(): Promise<string> {
   ).trim();
 
   if (!rawKey) {
-    throw new Error("GIGACHAT_CREDENTIALS не найден в Environment Variables Vercel");
+    throw new Error("GIGACHAT_CREDENTIALS не задан в Environment Variables Vercel");
   }
 
   let basicAuthValue = rawKey
@@ -85,8 +76,9 @@ async function getGigaChatToken(): Promise<string> {
   }
 
   const rquid = crypto.randomUUID();
+  const oauthUrl = "[https://ngw.devices.sberbank.ru:9443/api/v2/oauth](https://ngw.devices.sberbank.ru:9443/api/v2/oauth)";
 
-  const res = await fetch("[https://ngw.devices.sberbank.ru:9443/api/v2/oauth](https://ngw.devices.sberbank.ru:9443/api/v2/oauth)", {
+  const res = await fetch(oauthUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -150,26 +142,25 @@ export async function POST(req: Request) {
   }
 ]`;
 
-    const response = await fetch(
-      "[https://gigachat.devices.sberbank.ru/api/v1/chat/completions](https://gigachat.devices.sberbank.ru/api/v1/chat/completions)",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          model: "GigaChat",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: `Разбери билеты:\n${questionsText}` },
-          ],
-          temperature: 0.1,
-          max_tokens: 4000,
-        }),
-      }
-    );
+    const completionsUrl = "[https://gigachat.devices.sberbank.ru/api/v1/chat/completions](https://gigachat.devices.sberbank.ru/api/v1/chat/completions)";
+
+    const response = await fetch(completionsUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        model: "GigaChat",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Разбери билеты:\n${questionsText}` },
+        ],
+        temperature: 0.1,
+        max_tokens: 4000,
+      }),
+    });
 
     const resText = await response.text();
 
