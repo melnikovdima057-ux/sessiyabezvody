@@ -5,10 +5,11 @@ export const metadata: Metadata = {
   title: "ExamZero — Умный генератор микрошпаргалок без воды",
   description:
     "Разбор экзаменационных билетов за 1 минуту: ключевые тезисы, формулы и готовые ответы на оценку «Отлично».",
+  manifest: "/manifest.json",
   openGraph: {
     title: "ExamZero — Закрой сессию без лишней воды",
     description:
-      "Мгновенные микрошпаргалки по билетам через нейросеть. Ноль воды, максимум сути.",
+      "Мгновенные микрошпаргалки по билетам. Ноль воды, максимум сути.",
     url: "https://sessiyabezvody.vercel.app",
     siteName: "ExamZero",
     locale: "ru_RU",
