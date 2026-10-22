@@ -1,4 +1,5 @@
 "use client";
+"use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 
@@ -37,6 +38,16 @@ export default function Home() {
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
 
+  // Режим True Matte (анти-блик)
+  const [isTrueMatte, setIsTrueMatte] = useState(false);
+
+  // Синхронизация ПК -> Телефон
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncCode, setSyncCode] = useState<string | null>(null);
+  const [inputSyncCode, setInputSyncCode] = useState("");
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncTab, setSyncTab] = useState<"send" | "receive">("send");
+
   // Поиск
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -52,18 +63,34 @@ export default function Home() {
   const [timerSeconds, setTimerSeconds] = useState(120);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
 
-  // Координаты для свайп-навигации
+  // Свайп-навигация
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
 
   useEffect(() => {
     const paidInStorage = localStorage.getItem("sessiya_paid") === "true";
+    const matteInStorage = localStorage.getItem("sessiya_matte") === "true";
+    if (matteInStorage) setIsTrueMatte(true);
+
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get("payment") === "success" || paidInStorage) {
       setHasPaid(true);
       localStorage.setItem("sessiya_paid", "true");
     }
+
+    const codeParam = urlParams.get("sync");
+    if (codeParam) {
+      fetchTicketsByCode(codeParam);
+    }
   }, []);
+
+  const toggleTrueMatte = () => {
+    setIsTrueMatte((prev) => {
+      const next = !prev;
+      localStorage.setItem("sessiya_matte", String(next));
+      return next;
+    });
+  };
 
   // Динамический статус загрузки
   useEffect(() => {
@@ -88,6 +115,41 @@ export default function Home() {
     }
     return () => clearInterval(interval);
   }, [isTimerRunning, timerSeconds]);
+
+  // Panic Wipe: мгновенная зачистка и редирект
+  const handlePanicWipe = () => {
+    setInputText("");
+    setTickets([]);
+    setSelectedTicket(null);
+    setSearchQuery("");
+    setFileStatus(null);
+    try {
+      localStorage.removeItem("sessiya_paid");
+      sessionStorage.clear();
+    } catch (e) {}
+    window.location.href = "https://www.google.com";
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.key === "Escape") {
+        e.preventDefault();
+        handlePanicWipe();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (e.key === "ArrowLeft") {
+        goToPrevTicket();
+      } else if (e.key === "ArrowRight") {
+        goToNextTicket();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedTicket, tickets, searchQuery]);
 
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
@@ -122,7 +184,6 @@ export default function Home() {
     });
   }, [tickets, searchQuery]);
 
-  // Навигация к предыдущему / следующему билету
   const currentIndex = useMemo(() => {
     if (!selectedTicket || filteredTickets.length === 0) return -1;
     return filteredTickets.findIndex((t) => t.id === selectedTicket.id);
@@ -140,23 +201,6 @@ export default function Home() {
     }
   };
 
-  // Горячие клавиши (Ctrl+K для поиска, Стрелки влево/вправо для билетов)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      } else if (e.key === "ArrowLeft") {
-        goToPrevTicket();
-      } else if (e.key === "ArrowRight") {
-        goToNextTicket();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentIndex, filteredTickets]);
-
-  // Обработчики свайпов для сенсорных экранов
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.targetTouches[0].clientX;
   };
@@ -168,15 +212,8 @@ export default function Home() {
   const handleTouchEnd = () => {
     if (!touchStartX.current || !touchEndX.current) return;
     const diff = touchStartX.current - touchEndX.current;
-    const minSwipeDistance = 50;
-
-    if (diff > minSwipeDistance) {
-      // Свайп влево -> следующий билет
-      goToNextTicket();
-    } else if (diff < -minSwipeDistance) {
-      // Свайп вправо -> предыдущий билет
-      goToPrevTicket();
-    }
+    if (diff > 50) goToNextTicket();
+    else if (diff < -50) goToPrevTicket();
     touchStartX.current = null;
     touchEndX.current = null;
   };
@@ -297,6 +334,50 @@ export default function Home() {
     }
   };
 
+  const handleGenerateSyncCode = async () => {
+    if (tickets.length === 0) return;
+    setSyncLoading(true);
+    try {
+      const res = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickets }),
+      });
+      const data = await res.json();
+      if (data.code) {
+        setSyncCode(data.code);
+      } else {
+        alert("Не удалось создать код синхронизации");
+      }
+    } catch (err) {
+      alert("Ошибка при синхронизации");
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const fetchTicketsByCode = async (codeToFetch: string) => {
+    if (!codeToFetch.trim()) return;
+    setSyncLoading(true);
+    try {
+      const res = await fetch(`/api/sync?code=${encodeURIComponent(codeToFetch.trim())}`);
+      const data = await res.json();
+      if (data.tickets && data.tickets.length > 0) {
+        setTickets(data.tickets);
+        setSelectedTicket(data.tickets[0]);
+        setShowSyncModal(false);
+        setInputSyncCode("");
+        alert(`Успешно загружено ${data.tickets.length} билетов!`);
+      } else {
+        alert(data.error || "Код не найден или устарел");
+      }
+    } catch (err) {
+      alert("Ошибка подключения к серверу");
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
   const handleCreatePayment = async () => {
     setPayLoading(true);
     try {
@@ -374,35 +455,231 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  // Offline Drop: генерация самодостаточного HTML файла без сети
+  const downloadOfflineHtml = () => {
+    if (tickets.length === 0) return;
+
+    const ticketsJson = JSON.stringify(tickets).replace(/</g, "\\u003c");
+
+    const htmlContent = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ExamZero Offline</title>
+<style>
+  body { background: #121212; color: #a0a6b1; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 14px; line-height: 1.4; }
+  header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #262626; padding-bottom: 10px; margin-bottom: 12px; }
+  h1 { font-size: 16px; margin: 0; color: #818cf8; }
+  #search { width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333; color: #eee; padding: 8px 10px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .btn-num { background: #1c1c1c; border: 1px solid #333; color: #bbb; padding: 6px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; font-weight: bold; }
+  .btn-num.active { background: #4f46e5; border-color: #6366f1; color: #fff; }
+  .card { background: #181818; border: 1px solid #2a2a2a; border-radius: 8px; padding: 14px; }
+  .card h2 { font-size: 15px; margin: 4px 0 10px 0; color: #eee; }
+  .box { background: #1f1f1f; border-left: 3px solid #6366f1; padding: 8px 10px; border-radius: 4px; margin-top: 10px; font-size: 13px; }
+  .box.grade5 { border-left-color: #10b981; color: #ccc; }
+  .box.tips { border-left-color: #f59e0b; color: #e5e7eb; font-size: 12px; }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold; margin-bottom: 4px; color: #888; }
+  ul { margin: 0; padding-left: 18px; }
+  li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ExamZero Offline</h1>
+  <span style="font-size: 11px; color: #666;">100% Автономно</span>
+</header>
+<input type="text" id="search" placeholder="Поиск по билетам и терминам..." oninput="onSearch(this.value)">
+<div class="grid" id="nums"></div>
+<div id="content"></div>
+<script>
+  const tickets = ${ticketsJson};
+  let currentId = tickets[0]?.id || "";
+
+  function renderNums(list) {
+    const el = document.getElementById("nums");
+    el.innerHTML = list.map(t => \`<button class="btn-num \${t.id === currentId ? 'active' : ''}" onclick="selectTicket('\${t.id}')">\${t.questionNumber}</button>\`).join("");
+  }
+
+  function renderTicket(t) {
+    const el = document.getElementById("content");
+    if (!t) { el.innerHTML = "<p>Ничего не найдено</p>"; return; }
+    el.innerHTML = \`
+      <div class="card">
+        <div style="font-size: 11px; color: #818cf8; font-weight: bold;">Билет #\${t.questionNumber}</div>
+        <h2>\${t.question}</h2>
+        <div class="box">
+          <div class="label" style="color: #818cf8;">⚡ Главная суть:</div>
+          <ul>\${(t.essence || []).map(e => \`<li>\${e}</li>\`).join("")}</ul>
+        </div>
+        <div class="box grade5">
+          <div class="label" style="color: #34d399;">🎓 Ответ на 5:</div>
+          <p style="margin: 0 0 6px 0; font-style: italic; color: #888;">«\${t.answerGrade5?.thesis || ''}»</p>
+          <p style="margin: 0;">\${t.answerGrade5?.fullAnswer || ''}</p>
+        </div>
+        \${t.answerGrade5?.examinerTips ? \`<div class="box tips">💡 <strong>Лайфхак:</strong> \${t.answerGrade5.examinerTips}</div>\` : ''}
+      </div>
+    \`;
+  }
+
+  function selectTicket(id) {
+    currentId = id;
+    const t = tickets.find(x => x.id === id);
+    renderNums(tickets);
+    renderTicket(t);
+  }
+
+  function onSearch(query) {
+    const q = query.toLowerCase().trim();
+    const filtered = tickets.filter(t => 
+      t.question.toLowerCase().includes(q) ||
+      String(t.questionNumber).includes(q) ||
+      (t.essence && t.essence.some(e => e.toLowerCase().includes(q))) ||
+      (t.answerGrade5 && t.answerGrade5.fullAnswer.toLowerCase().includes(q))
+    );
+    renderNums(filtered);
+    renderTicket(filtered[0] || null);
+  }
+
+  selectTicket(currentId);
+</script>
+</body>
+</html>`;
+
+    const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "ExamZero_Offline.html";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const shareUrl =
+    typeof window !== "undefined" && syncCode
+      ? `${window.location.origin}/?sync=${syncCode}`
+      : "";
+
   return (
-    <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-4 md:p-8 font-sans pb-24 md:pb-8">
-      {/* Хедер с логотипом ExamZero */}
-      <header className="max-w-5xl mx-auto flex justify-between items-center pb-6 border-b border-gray-800">
+    <main
+      className={`min-h-screen p-4 md:p-8 font-sans pb-24 md:pb-8 transition-colors ${
+        isTrueMatte
+          ? "bg-[#161616] text-[#7a828e]"
+          : "bg-[#0d0f12] text-gray-100"
+      }`}
+    >
+      {/* Хедер ExamZero */}
+      <header
+        className={`max-w-5xl mx-auto flex justify-between items-center pb-6 border-b ${
+          isTrueMatte ? "border-[#262626]" : "border-gray-800"
+        }`}
+      >
         <div>
           <button
             onClick={() => setShowAboutModal(true)}
             className="group text-left flex items-center gap-2 transition-transform active:scale-95"
-            title="Нажми, чтобы узнать всё о сервисе"
+            title="О сервисе ExamZero"
           >
-            <h1 className="text-xl md:text-2xl font-black tracking-tight text-white flex items-center gap-1.5 group-hover:text-indigo-400 transition-colors">
-              <span className="text-indigo-500 group-hover:text-indigo-300">Exam</span>Zero
+            <h1
+              className={`text-xl md:text-2xl font-black tracking-tight flex items-center gap-1.5 transition-colors ${
+                isTrueMatte ? "text-[#949ba6]" : "text-white"
+              }`}
+            >
+              <span className={isTrueMatte ? "text-[#7a828e]" : "text-indigo-500"}>
+                Exam
+              </span>
+              Zero
             </h1>
-            <span className="text-[10px] bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 px-1.5 py-0.5 rounded font-mono uppercase group-hover:border-indigo-400 group-hover:bg-indigo-900 transition-colors">
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase transition-colors ${
+                isTrueMatte
+                  ? "bg-[#222] text-[#888] border border-[#333]"
+                  : "bg-indigo-950/80 text-indigo-300 border border-indigo-700/60"
+              }`}
+            >
               AI ℹ️
             </span>
           </button>
-          <p className="text-xs md:text-sm text-gray-400 mt-0.5">
+          <p
+            className={`text-xs md:text-sm mt-0.5 ${
+              isTrueMatte ? "text-[#555]" : "text-gray-400"
+            }`}
+          >
             Микрошпаргалки без воды • Ноль лишней теории
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="bg-gray-900 border border-gray-700 px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-mono">
+        <div className="flex items-center gap-2">
+          {/* Режим True Matte */}
+          <button
+            onClick={toggleTrueMatte}
+            className={`text-xs px-2.5 py-1.5 rounded-lg border flex items-center gap-1 transition-colors ${
+              isTrueMatte
+                ? "bg-[#222] border-[#444] text-[#aaa]"
+                : "bg-gray-900 border-gray-700 text-gray-300 hover:border-gray-500"
+            }`}
+            title="Режим True Matte (матовый графит без бликов на очках)"
+          >
+            <span>🕶️</span>
+            <span className="hidden sm:inline">
+              {isTrueMatte ? "Matte ON" : "True Matte"}
+            </span>
+          </button>
+
+          {/* Panic Wipe */}
+          <button
+            onClick={handlePanicWipe}
+            className={`text-xs px-2.5 py-1.5 rounded-lg border flex items-center gap-1 transition-colors ${
+              isTrueMatte
+                ? "bg-[#202020] border-[#333] text-[#777] hover:text-red-400"
+                : "bg-gray-900 border-gray-800 hover:border-rose-500/60 text-gray-400 hover:text-rose-400"
+            }`}
+            title="Экстренная зачистка и переход в Google (Shift + Esc)"
+          >
+            <span>🚨</span>
+            <span className="hidden sm:inline">Стереть всё</span>
+          </button>
+
+          {/* Синхронизация */}
+          <button
+            onClick={() => {
+              if (tickets.length > 0 && !syncCode) {
+                handleGenerateSyncCode();
+                setSyncTab("send");
+              } else if (tickets.length === 0) {
+                setSyncTab("receive");
+              }
+              setShowSyncModal(true);
+            }}
+            className={`text-xs px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 transition-colors ${
+              isTrueMatte
+                ? "bg-[#202020] border-[#333] text-[#888]"
+                : "bg-gray-900 border-gray-700 hover:border-indigo-500 text-gray-200"
+            }`}
+            title="Синхронизация с телефоном"
+          >
+            <span>📱</span>
+            <span className="hidden sm:inline">Телефон</span>
+          </button>
+
+          {/* Таймер */}
+          <div
+            className={`px-2.5 py-1.5 rounded-lg border flex items-center gap-2 text-xs font-mono ${
+              isTrueMatte
+                ? "bg-[#1c1c1c] border-[#2e2e2e] text-[#888]"
+                : "bg-gray-900 border-gray-700 text-gray-200"
+            }`}
+          >
             ⏱ {Math.floor(timerSeconds / 60)}:
             {(timerSeconds % 60).toString().padStart(2, "0")}
             <button
               onClick={() => setIsTimerRunning(!isTimerRunning)}
-              className="text-xs bg-indigo-600 px-2 py-0.5 rounded text-white hover:bg-indigo-500"
+              className={`px-1.5 py-0.5 rounded text-[11px] ${
+                isTrueMatte
+                  ? "bg-[#333] text-[#bbb]"
+                  : "bg-indigo-600 text-white hover:bg-indigo-500"
+              }`}
             >
               {isTimerRunning ? "Пауза" : "Старт"}
             </button>
@@ -411,7 +688,7 @@ export default function Home() {
                 setIsTimerRunning(false);
                 setTimerSeconds(120);
               }}
-              className="text-xs text-gray-400 hover:text-white"
+              className="text-gray-500 hover:text-white"
             >
               ↻
             </button>
@@ -421,12 +698,35 @@ export default function Home() {
 
       <div className="max-w-5xl mx-auto mt-6 grid grid-cols-1 md:grid-cols-12 gap-6">
         <section className="md:col-span-5 flex flex-col gap-4">
-          <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-lg">
+          <div
+            className={`border p-4 rounded-xl shadow-lg ${
+              isTrueMatte
+                ? "bg-[#1c1c1c] border-[#292929]"
+                : "bg-gray-900 border-gray-800"
+            }`}
+          >
             <div className="flex justify-between items-center mb-2">
-              <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              <label
+                className={`text-xs font-semibold uppercase tracking-wider ${
+                  isTrueMatte ? "text-[#666]" : "text-gray-400"
+                }`}
+              >
                 Список билетов:
               </label>
-              <div>
+              <div className="flex items-center gap-2.5">
+                {inputText && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInputText("");
+                      setFileStatus(null);
+                    }}
+                    className="text-xs text-rose-400 hover:text-rose-300 font-medium flex items-center gap-1 transition-colors"
+                    title="Очистить всё поле ввода"
+                  >
+                    ✕ Очистить
+                  </button>
+                )}
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -441,7 +741,11 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 transition-colors"
+                  className={`text-xs font-medium flex items-center gap-1 transition-colors ${
+                    isTrueMatte
+                      ? "text-[#888] hover:text-[#bbb]"
+                      : "text-indigo-400 hover:text-indigo-300"
+                  }`}
                 >
                   📷 Фото / Word / .txt
                 </button>
@@ -469,7 +773,11 @@ export default function Home() {
                 }}
                 placeholder="Вставь вопросы, перетащи файл Word / фото или нажми Ctrl+V со скриншотом..."
                 rows={8}
-                className="w-full bg-[#14181f] border border-gray-700 rounded-lg p-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 resize-none"
+                className={`w-full border rounded-lg p-3 text-sm focus:outline-none resize-none ${
+                  isTrueMatte
+                    ? "bg-[#141414] border-[#2c2c2c] text-[#999] focus:border-[#555]"
+                    : "bg-[#14181f] border-gray-700 text-gray-200 focus:border-indigo-500"
+                }`}
               />
             </div>
 
@@ -490,7 +798,11 @@ export default function Home() {
               </div>
             )}
 
-            <div className="flex justify-between items-center mt-3 text-xs text-gray-400">
+            <div
+              className={`flex justify-between items-center mt-3 text-xs ${
+                isTrueMatte ? "text-[#555]" : "text-gray-400"
+              }`}
+            >
               <span>Символов: {inputText.length}</span>
               {hasPaid ? (
                 <span className="text-emerald-400 font-medium">✓ Доступ разблокирован</span>
@@ -502,7 +814,11 @@ export default function Home() {
             <button
               onClick={handleGenerate}
               disabled={loading || !inputText.trim() || fileParsing}
-              className="w-full mt-3 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-400 font-medium rounded-lg text-sm transition-all flex items-center justify-center gap-2 shadow"
+              className={`w-full mt-3 py-2.5 px-4 font-medium rounded-lg text-sm transition-all flex items-center justify-center gap-2 shadow ${
+                isTrueMatte
+                  ? "bg-[#2a2a2a] hover:bg-[#333] text-[#bbb] disabled:bg-[#1a1a1a] disabled:text-[#444]"
+                  : "bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-400 text-white"
+              }`}
             >
               {loading ? (
                 <span className="flex items-center gap-2 transition-all">
@@ -516,7 +832,13 @@ export default function Home() {
           </div>
 
           {tickets.length > 0 && (
-            <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow flex flex-col gap-3">
+            <div
+              className={`border p-4 rounded-xl shadow flex flex-col gap-3 ${
+                isTrueMatte
+                  ? "bg-[#1c1c1c] border-[#292929]"
+                  : "bg-gray-900 border-gray-800"
+              }`}
+            >
               <div className="relative">
                 <input
                   ref={searchInputRef}
@@ -524,7 +846,11 @@ export default function Home() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Поиск по терминам, формулам..."
-                  className="w-full bg-[#14181f] border border-gray-700 rounded-lg pl-8 pr-12 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+                  className={`w-full border rounded-lg pl-8 pr-12 py-2 text-xs focus:outline-none ${
+                    isTrueMatte
+                      ? "bg-[#141414] border-[#2c2c2c] text-[#aaa] focus:border-[#444]"
+                      : "bg-[#14181f] border-gray-700 text-gray-200 focus:border-indigo-500"
+                  }`}
                 />
                 <span className="absolute left-2.5 top-2.5 text-xs text-gray-500">
                   🔍
@@ -544,10 +870,21 @@ export default function Home() {
               </div>
 
               <div className="flex justify-between items-center">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <span
+                  className={`text-xs font-semibold uppercase tracking-wider ${
+                    isTrueMatte ? "text-[#666]" : "text-gray-400"
+                  }`}
+                >
                   Билеты ({filteredTickets.length} из {tickets.length}):
                 </span>
                 <div className="flex gap-1.5">
+                  <button
+                    onClick={downloadOfflineHtml}
+                    className="text-[11px] bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border border-emerald-800/60 px-2 py-1 rounded transition-colors"
+                    title="Скачать автономный HTML-файл для работы без интернета"
+                  >
+                    💾 Офлайн HTML
+                  </button>
                   <button
                     onClick={copyAllForTelegram}
                     className="text-[11px] bg-gray-800 hover:bg-gray-700 text-indigo-300 border border-indigo-900/50 px-2 py-1 rounded transition-colors"
@@ -572,7 +909,11 @@ export default function Home() {
                     onClick={() => setSelectedTicket(t)}
                     className={`h-9 w-9 text-xs font-bold rounded-lg transition-colors border ${
                       selectedTicket?.id === t.id
-                        ? "bg-indigo-600 border-indigo-400 text-white shadow"
+                        ? isTrueMatte
+                          ? "bg-[#333] border-[#555] text-white"
+                          : "bg-indigo-600 border-indigo-400 text-white shadow"
+                        : isTrueMatte
+                        ? "bg-[#141414] border-[#292929] text-[#777] hover:border-[#444]"
                         : "bg-[#14181f] border-gray-700 text-gray-300 hover:border-gray-500"
                     }`}
                   >
@@ -589,7 +930,7 @@ export default function Home() {
           )}
         </section>
 
-        {/* Область билета с поддержкой свайпов */}
+        {/* Раздел билетов */}
         <section
           className="md:col-span-7"
           onTouchStart={handleTouchStart}
@@ -597,18 +938,34 @@ export default function Home() {
           onTouchEnd={handleTouchEnd}
         >
           {selectedTicket ? (
-            <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl shadow-lg flex flex-col gap-5 select-none md:select-text">
+            <div
+              className={`border p-6 rounded-xl shadow-lg flex flex-col gap-5 select-none md:select-text ${
+                isTrueMatte
+                  ? "bg-[#1c1c1c] border-[#292929]"
+                  : "bg-gray-900 border-gray-800"
+              }`}
+            >
               <div className="flex justify-between items-start gap-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs bg-indigo-900/50 text-indigo-300 border border-indigo-700/50 px-2 py-0.5 rounded font-mono">
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded font-mono border ${
+                        isTrueMatte
+                          ? "bg-[#252525] text-[#888] border-[#383838]"
+                          : "bg-indigo-900/50 text-indigo-300 border-indigo-700/50"
+                      }`}
+                    >
                       Билет #{selectedTicket.questionNumber}
                     </span>
                     <span className="text-[11px] text-gray-500 hidden sm:inline">
-                      (Свайп влево/вправо для листания)
+                      (Свайп для листания)
                     </span>
                   </div>
-                  <h2 className="text-lg font-bold text-white mt-1">
+                  <h2
+                    className={`text-lg font-bold mt-1 ${
+                      isTrueMatte ? "text-[#b0b7c3]" : "text-white"
+                    }`}
+                  >
                     {selectedTicket.question}
                   </h2>
                 </div>
@@ -618,36 +975,78 @@ export default function Home() {
                       `${selectedTicket.question}. Главная мысль: ${selectedTicket.answerGrade5.thesis}. ${selectedTicket.answerGrade5.fullAnswer}`
                     )
                   }
-                  className="bg-gray-800 hover:bg-gray-700 text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors shrink-0"
+                  className={`text-xs px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 transition-colors shrink-0 ${
+                    isTrueMatte
+                      ? "bg-[#222] border-[#333] text-[#888]"
+                      : "bg-gray-800 hover:bg-gray-700 border-gray-700 text-gray-200"
+                  }`}
                   title="Аудио-суфлёр в наушник"
                 >
                   🎧 Озвучить
                 </button>
               </div>
 
-              <div className="bg-[#14181f] border border-gray-800 p-3.5 rounded-lg">
-                <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider block mb-2">
+              <div
+                className={`border p-3.5 rounded-lg ${
+                  isTrueMatte
+                    ? "bg-[#141414] border-[#262626]"
+                    : "bg-[#14181f] border-gray-800"
+                }`}
+              >
+                <span
+                  className={`text-xs font-semibold uppercase tracking-wider block mb-2 ${
+                    isTrueMatte ? "text-[#7a828e]" : "text-indigo-400"
+                  }`}
+                >
                   ⚡ Суть за 1 минуту (тезисы):
                 </span>
-                <ul className="list-disc list-inside space-y-1 text-sm text-gray-300">
+                <ul
+                  className={`list-disc list-inside space-y-1 text-sm ${
+                    isTrueMatte ? "text-[#8c94a0]" : "text-gray-300"
+                  }`}
+                >
                   {selectedTicket.essence.map((e, i) => (
                     <li key={i}>{e}</li>
                   ))}
                 </ul>
               </div>
 
-              <div className="bg-[#14181f] border border-gray-800 p-3.5 rounded-lg">
-                <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider block mb-1">
+              <div
+                className={`border p-3.5 rounded-lg ${
+                  isTrueMatte
+                    ? "bg-[#141414] border-[#262626]"
+                    : "bg-[#14181f] border-gray-800"
+                }`}
+              >
+                <span
+                  className={`text-xs font-semibold uppercase tracking-wider block mb-1 ${
+                    isTrueMatte ? "text-[#7a828e]" : "text-emerald-400"
+                  }`}
+                >
                   🎓 Ответ на оценку «Отлично»:
                 </span>
-                <p className="text-xs text-gray-400 italic mb-2">
+                <p
+                  className={`text-xs italic mb-2 ${
+                    isTrueMatte ? "text-[#666]" : "text-gray-400"
+                  }`}
+                >
                   «{selectedTicket.answerGrade5.thesis}»
                 </p>
-                <p className="text-sm text-gray-200 leading-relaxed">
+                <p
+                  className={`text-sm leading-relaxed ${
+                    isTrueMatte ? "text-[#8c94a0]" : "text-gray-200"
+                  }`}
+                >
                   {selectedTicket.answerGrade5.fullAnswer}
                 </p>
                 {selectedTicket.answerGrade5.examinerTips && (
-                  <div className="mt-3 pt-2 border-t border-gray-800/80 text-xs text-amber-300/90 flex gap-1.5 items-center">
+                  <div
+                    className={`mt-3 pt-2 border-t text-xs flex gap-1.5 items-center ${
+                      isTrueMatte
+                        ? "border-[#242424] text-[#777]"
+                        : "border-gray-800/80 text-amber-300/90"
+                    }`}
+                  >
                     <span>💡 Лайфхак преподавателя:</span>
                     <span>{selectedTicket.answerGrade5.examinerTips}</span>
                   </div>
@@ -655,15 +1054,32 @@ export default function Home() {
               </div>
 
               {selectedTicket.keyTerms && selectedTicket.keyTerms.length > 0 && (
-                <div className="bg-[#14181f] border border-gray-800 p-3.5 rounded-lg">
-                  <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider block mb-2">
+                <div
+                  className={`border p-3.5 rounded-lg ${
+                    isTrueMatte
+                      ? "bg-[#141414] border-[#262626]"
+                      : "bg-[#14181f] border-gray-800"
+                  }`}
+                >
+                  <span
+                    className={`text-xs font-semibold uppercase tracking-wider block mb-2 ${
+                      isTrueMatte ? "text-[#7a828e]" : "text-blue-400"
+                    }`}
+                  >
                     🔑 Термины и определения:
                   </span>
                   <div className="space-y-1.5 text-xs">
                     {selectedTicket.keyTerms.map((t, i) => (
-                      <div key={i} className="text-gray-300">
-                        <strong className="text-white">{t.term}</strong> —{" "}
-                        {t.definition}
+                      <div
+                        key={i}
+                        className={isTrueMatte ? "text-[#777]" : "text-gray-300"}
+                      >
+                        <strong
+                          className={isTrueMatte ? "text-[#aaa]" : "text-white"}
+                        >
+                          {t.term}
+                        </strong>{" "}
+                        — {t.definition}
                       </div>
                     ))}
                   </div>
@@ -671,7 +1087,13 @@ export default function Home() {
               )}
             </div>
           ) : (
-            <div className="bg-gray-900 border border-gray-800 p-12 rounded-xl text-center flex flex-col items-center justify-center text-gray-500 min-h-[350px]">
+            <div
+              className={`border p-12 rounded-xl text-center flex flex-col items-center justify-center min-h-[350px] ${
+                isTrueMatte
+                  ? "bg-[#1c1c1c] border-[#292929] text-[#555]"
+                  : "bg-gray-900 border-gray-800 text-gray-500"
+              }`}
+            >
               <div className="text-3xl mb-2">🔍</div>
               <p className="text-sm">
                 Вставь вопросы, перетащи файл Word или фото с доски
@@ -684,14 +1106,20 @@ export default function Home() {
         </section>
       </div>
 
-      {/* Панель для управления одной рукой под партой (отображается при наличии билетов) */}
+      {/* Панель для управления одной рукой под партой */}
       {selectedTicket && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-gray-900/90 backdrop-blur-md border border-gray-700 px-4 py-2 rounded-full shadow-2xl flex items-center gap-3">
+        <div
+          className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-40 backdrop-blur-md border px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 ${
+            isTrueMatte
+              ? "bg-[#1c1c1c]/95 border-[#333]"
+              : "bg-gray-900/90 border-gray-700"
+          }`}
+        >
           <button
             onClick={goToPrevTicket}
             disabled={currentIndex <= 0}
             className="w-8 h-8 rounded-full bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 flex items-center justify-center text-xs text-white transition-colors"
-            title="Предыдущий билет (Стрелка влево или свайп вправо)"
+            title="Предыдущий билет"
           >
             ←
           </button>
@@ -704,10 +1132,115 @@ export default function Home() {
             onClick={goToNextTicket}
             disabled={currentIndex >= filteredTickets.length - 1}
             className="w-8 h-8 rounded-full bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 flex items-center justify-center text-xs text-white transition-colors"
-            title="Следующий билет (Стрелка вправо или свайп влево)"
+            title="Следующий билет"
           >
             →
           </button>
+        </div>
+      )}
+
+      {/* Модальное окно синхронизации ПК -> Телефон */}
+      {showSyncModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#11141a] border border-gray-800 w-full max-w-sm rounded-2xl p-6 shadow-2xl flex flex-col gap-4 text-center">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                📱 Синхронизация билетов
+              </h3>
+              <button
+                onClick={() => setShowSyncModal(false)}
+                className="text-gray-400 hover:text-white text-base"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex bg-[#171b23] p-1 rounded-xl border border-gray-800">
+              <button
+                onClick={() => setSyncTab("send")}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  syncTab === "send"
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                Отправить с ПК
+              </button>
+              <button
+                onClick={() => setSyncTab("receive")}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  syncTab === "receive"
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                Ввести код
+              </button>
+            </div>
+
+            {syncTab === "send" ? (
+              <div className="flex flex-col items-center gap-3 py-2">
+                {tickets.length === 0 ? (
+                  <p className="text-xs text-gray-400">
+                    Сначала разбери билеты на ПК, чтобы передать их на телефон :)
+                  </p>
+                ) : syncLoading ? (
+                  <p className="text-xs text-indigo-400 animate-pulse">
+                    Генерация защитного кода...
+                  </p>
+                ) : syncCode ? (
+                  <>
+                    <p className="text-xs text-gray-400">
+                      Отсканируй камерой смартфона или введи код на сайте в телефоне:
+                    </p>
+                    <div className="bg-white p-2 rounded-xl shadow">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+                          shareUrl
+                        )}`}
+                        alt="QR код для синхронизации"
+                        className="w-36 h-36"
+                      />
+                    </div>
+                    <div className="bg-[#171b23] border border-indigo-700/60 px-4 py-2 rounded-xl">
+                      <span className="text-xs text-gray-400 block">Пин-код:</span>
+                      <span className="text-2xl font-black font-mono tracking-widest text-indigo-400">
+                        {syncCode}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleGenerateSyncCode}
+                    className="py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-medium text-white transition-colors"
+                  >
+                    Сгенерировать код и QR
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 py-2">
+                <p className="text-xs text-gray-400">
+                  Введи 4-значный пин-код с экрана монитора:
+                </p>
+                <input
+                  type="text"
+                  maxLength={4}
+                  value={inputSyncCode}
+                  onChange={(e) => setInputSyncCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Например: 4819"
+                  className="bg-[#171b23] border border-gray-700 rounded-xl p-3 text-center text-2xl font-mono tracking-widest text-white focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  onClick={() => fetchTicketsByCode(inputSyncCode)}
+                  disabled={syncLoading || inputSyncCode.length !== 4}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 text-xs font-semibold rounded-xl text-white transition-colors"
+                >
+                  {syncLoading ? "Загружаем билеты..." : "Загрузить на телефон"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -745,13 +1278,16 @@ export default function Home() {
                   🚀 Встроенные возможности:
                 </span>
                 <ul className="list-disc list-inside space-y-1 text-gray-300">
+                  <li><strong>Офлайн HTML-файл:</strong> скачай билеты одним файлом и открывай без интернета.</li>
+                  <li><strong>Режим True Matte:</strong> матовый анти-бликовый экран без цветных отблесков на очках.</li>
+                  <li><strong>Быстрая очистка:</strong> кнопка «✕ Очистить» в поле ввода или мгновенный Panic Wipe (Shift + Esc) со стиранием всех данных.</li>
+                  <li><strong>Синхронизация с телефоном:</strong> отправь билеты на смартфон за секунду по QR или 4 цифрам.</li>
                   <li><strong>Свайп-навигация:</strong> листай билеты пальцем одной рукой под партой или стрелками на клавиатуре.</li>
                   <li><strong>Загрузка в 1 клик:</strong> вставка текста, файлов Word (.docx), текстовых файлов (.txt) или фото с доски.</li>
                   <li><strong>OCR и скриншоты:</strong> нажми Ctrl + V со скриншотом в буфере обмена — текст распознается автоматически.</li>
                   <li><strong>Аудио-суфлёр:</strong> озвучка ответа прямо в беспроводной наушник.</li>
-                  <li><strong>Моментальный поиск (Ctrl + K):</strong> мгновенно находит нужный билет по формулам и терминам прямо на экзамене.</li>
+                  <li><strong>Моментальный поиск (Ctrl + K):</strong> мгновенно находит нужный билет прямо на экзамене.</li>
                   <li><strong>Экзаменационный таймер:</strong> тренировка ответа за 2 минуты.</li>
-                  <li><strong>Экспорт:</strong> готовая разметка для пересылки в Telegram и скачивание в .txt.</li>
                 </ul>
               </div>
 
