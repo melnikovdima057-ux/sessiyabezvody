@@ -32,7 +32,6 @@ export default function Home() {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
 
   useEffect(() => {
-    // Проверка статуса оплаты в браузере или в URL
     const paidInStorage = localStorage.getItem("sessiya_paid") === "true";
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get("payment") === "success" || paidInStorage) {
@@ -41,7 +40,7 @@ export default function Home() {
     }
   }, []);
 
-  // Работа таймера
+  // Таймер
   useEffect(() => {
     let interval: any = null;
     if (isTimerRunning && timerSeconds > 0) {
@@ -57,7 +56,6 @@ export default function Home() {
   const handleGenerate = async () => {
     if (!inputText.trim()) return;
 
-    // Считаем примерное количество вопросов по строкам
     const lines = inputText.split("\n").filter((l) => l.trim().length > 3);
     if (lines.length > 2 && !hasPaid) {
       setShowPayModal(true);
@@ -124,6 +122,47 @@ export default function Home() {
     }
   };
 
+  const copyAllForTelegram = () => {
+    if (tickets.length === 0) return;
+    const formatted = tickets
+      .map(
+        (t) =>
+          `📌 *Билет #${t.questionNumber}: ${t.question}*\n\n` +
+          `⚡ *Суть:* ${t.essence?.join("; ") || ""}\n` +
+          `🎓 *Ответ:* ${t.answerGrade5?.fullAnswer || ""}\n` +
+          (t.answerGrade5?.examinerTips
+            ? `💡 *Лайфхак:* ${t.answerGrade5.examinerTips}\n`
+            : "")
+      )
+      .join("\n───────────────\n\n");
+
+    navigator.clipboard.writeText(formatted);
+    alert("Все билеты скопированы с разметкой для Telegram!");
+  };
+
+  const downloadAsTxt = () => {
+    if (tickets.length === 0) return;
+    const textContent = tickets
+      .map(
+        (t) =>
+          `=== БИЛЕТ #${t.questionNumber}: ${t.question} ===\n` +
+          `СУТЬ: ${t.essence?.join("; ") || ""}\n` +
+          `ОТВЕТ НА 5: ${t.answerGrade5?.fullAnswer || ""}\n` +
+          (t.answerGrade5?.examinerTips
+            ? `ЛАЙФХАК: ${t.answerGrade5.examinerTips}\n`
+            : "")
+      )
+      .join("\n\n" + "=".repeat(40) + "\n\n");
+
+    const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "Шпоры_СессияБезВоды.txt";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-4 md:p-8 font-sans">
       {/* Хедер */}
@@ -160,7 +199,7 @@ export default function Home() {
       </header>
 
       <div className="max-w-5xl mx-auto mt-6 grid grid-cols-1 md:grid-cols-12 gap-6">
-        {/* Поле ввода и настройки */}
+        {/* Поле ввода и кнопки экспорта */}
         <section className="md:col-span-5 flex flex-col gap-4">
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-lg">
             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
@@ -190,13 +229,31 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Нумпад билетов */}
+          {/* Нумпад билетов и кнопки сохранения */}
           {tickets.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
-                Быстрый переход по билетам:
-              </span>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Билеты ({tickets.length}):
+                </span>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={copyAllForTelegram}
+                    className="text-[11px] bg-gray-800 hover:bg-gray-700 text-indigo-300 border border-indigo-900/50 px-2 py-1 rounded transition-colors"
+                    title="Скопировать все для Telegram"
+                  >
+                    📋 В ТГ
+                  </button>
+                  <button
+                    onClick={downloadAsTxt}
+                    className="text-[11px] bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-2 py-1 rounded transition-colors"
+                    title="Скачать .txt файл"
+                  >
+                    💾 .txt
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto pr-1">
                 {tickets.map((t, idx) => (
                   <button
                     key={t.id || idx}
