@@ -52,6 +52,10 @@ export default function Home() {
   const [timerSeconds, setTimerSeconds] = useState(120);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
 
+  // Координаты для свайп-навигации
+  const touchStartX = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
+
   useEffect(() => {
     const paidInStorage = localStorage.getItem("sessiya_paid") === "true";
     const urlParams = new URLSearchParams(window.location.search);
@@ -61,7 +65,7 @@ export default function Home() {
     }
   }, []);
 
-  // Смена статуса на кнопке каждые 5 секунд при загрузке
+  // Динамический статус загрузки
   useEffect(() => {
     let interval: any = null;
     if (loading) {
@@ -72,17 +76,6 @@ export default function Home() {
     }
     return () => clearInterval(interval);
   }, [loading]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
 
   useEffect(() => {
     let interval: any = null;
@@ -109,6 +102,84 @@ export default function Home() {
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
   }, []);
+
+  const filteredTickets = useMemo(() => {
+    if (!searchQuery.trim()) return tickets;
+    const query = searchQuery.toLowerCase().trim();
+
+    return tickets.filter((t) => {
+      const matchQuestion = t.question.toLowerCase().includes(query);
+      const matchNum = String(t.questionNumber).includes(query);
+      const matchEssence = t.essence?.some((e) => e.toLowerCase().includes(query));
+      const matchTerms = t.keyTerms?.some(
+        (k) =>
+          k.term.toLowerCase().includes(query) ||
+          k.definition.toLowerCase().includes(query)
+      );
+      const matchAnswer = t.answerGrade5?.fullAnswer.toLowerCase().includes(query);
+
+      return matchQuestion || matchNum || matchEssence || matchTerms || matchAnswer;
+    });
+  }, [tickets, searchQuery]);
+
+  // Навигация к предыдущему / следующему билету
+  const currentIndex = useMemo(() => {
+    if (!selectedTicket || filteredTickets.length === 0) return -1;
+    return filteredTickets.findIndex((t) => t.id === selectedTicket.id);
+  }, [selectedTicket, filteredTickets]);
+
+  const goToPrevTicket = () => {
+    if (currentIndex > 0) {
+      setSelectedTicket(filteredTickets[currentIndex - 1]);
+    }
+  };
+
+  const goToNextTicket = () => {
+    if (currentIndex >= 0 && currentIndex < filteredTickets.length - 1) {
+      setSelectedTicket(filteredTickets[currentIndex + 1]);
+    }
+  };
+
+  // Горячие клавиши (Ctrl+K для поиска, Стрелки влево/вправо для билетов)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (e.key === "ArrowLeft") {
+        goToPrevTicket();
+      } else if (e.key === "ArrowRight") {
+        goToNextTicket();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [currentIndex, filteredTickets]);
+
+  // Обработчики свайпов для сенсорных экранов
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.targetTouches[0].clientX;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.targetTouches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStartX.current || !touchEndX.current) return;
+    const diff = touchStartX.current - touchEndX.current;
+    const minSwipeDistance = 50;
+
+    if (diff > minSwipeDistance) {
+      // Свайп влево -> следующий билет
+      goToNextTicket();
+    } else if (diff < -minSwipeDistance) {
+      // Свайп вправо -> предыдущий билет
+      goToPrevTicket();
+    }
+    touchStartX.current = null;
+    touchEndX.current = null;
+  };
 
   const loadMammoth = (): Promise<any> => {
     return new Promise((resolve, reject) => {
@@ -303,27 +374,8 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  const filteredTickets = useMemo(() => {
-    if (!searchQuery.trim()) return tickets;
-    const query = searchQuery.toLowerCase().trim();
-
-    return tickets.filter((t) => {
-      const matchQuestion = t.question.toLowerCase().includes(query);
-      const matchNum = String(t.questionNumber).includes(query);
-      const matchEssence = t.essence?.some((e) => e.toLowerCase().includes(query));
-      const matchTerms = t.keyTerms?.some(
-        (k) =>
-          k.term.toLowerCase().includes(query) ||
-          k.definition.toLowerCase().includes(query)
-      );
-      const matchAnswer = t.answerGrade5?.fullAnswer.toLowerCase().includes(query);
-
-      return matchQuestion || matchNum || matchEssence || matchTerms || matchAnswer;
-    });
-  }, [tickets, searchQuery]);
-
   return (
-    <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-4 md:p-8 font-sans">
+    <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-4 md:p-8 font-sans pb-24 md:pb-8">
       {/* Хедер с логотипом ExamZero */}
       <header className="max-w-5xl mx-auto flex justify-between items-center pb-6 border-b border-gray-800">
         <div>
@@ -537,14 +589,25 @@ export default function Home() {
           )}
         </section>
 
-        <section className="md:col-span-7">
+        {/* Область билета с поддержкой свайпов */}
+        <section
+          className="md:col-span-7"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
           {selectedTicket ? (
-            <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl shadow-lg flex flex-col gap-5">
+            <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl shadow-lg flex flex-col gap-5 select-none md:select-text">
               <div className="flex justify-between items-start gap-3">
                 <div>
-                  <span className="text-xs bg-indigo-900/50 text-indigo-300 border border-indigo-700/50 px-2 py-0.5 rounded font-mono">
-                    Билет #{selectedTicket.questionNumber}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs bg-indigo-900/50 text-indigo-300 border border-indigo-700/50 px-2 py-0.5 rounded font-mono">
+                      Билет #{selectedTicket.questionNumber}
+                    </span>
+                    <span className="text-[11px] text-gray-500 hidden sm:inline">
+                      (Свайп влево/вправо для листания)
+                    </span>
+                  </div>
                   <h2 className="text-lg font-bold text-white mt-1">
                     {selectedTicket.question}
                   </h2>
@@ -555,7 +618,7 @@ export default function Home() {
                       `${selectedTicket.question}. Главная мысль: ${selectedTicket.answerGrade5.thesis}. ${selectedTicket.answerGrade5.fullAnswer}`
                     )
                   }
-                  className="bg-gray-800 hover:bg-gray-700 text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors"
+                  className="bg-gray-800 hover:bg-gray-700 text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors shrink-0"
                   title="Аудио-суфлёр в наушник"
                 >
                   🎧 Озвучить
@@ -621,6 +684,33 @@ export default function Home() {
         </section>
       </div>
 
+      {/* Панель для управления одной рукой под партой (отображается при наличии билетов) */}
+      {selectedTicket && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-gray-900/90 backdrop-blur-md border border-gray-700 px-4 py-2 rounded-full shadow-2xl flex items-center gap-3">
+          <button
+            onClick={goToPrevTicket}
+            disabled={currentIndex <= 0}
+            className="w-8 h-8 rounded-full bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 flex items-center justify-center text-xs text-white transition-colors"
+            title="Предыдущий билет (Стрелка влево или свайп вправо)"
+          >
+            ←
+          </button>
+
+          <span className="text-xs font-mono text-gray-300 min-w-[70px] text-center">
+            {currentIndex + 1} / {filteredTickets.length}
+          </span>
+
+          <button
+            onClick={goToNextTicket}
+            disabled={currentIndex >= filteredTickets.length - 1}
+            className="w-8 h-8 rounded-full bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 flex items-center justify-center text-xs text-white transition-colors"
+            title="Следующий билет (Стрелка вправо или свайп влево)"
+          >
+            →
+          </button>
+        </div>
+      )}
+
       {/* Окно «О сервисе ExamZero» */}
       {showAboutModal && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -642,7 +732,8 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="bg-[#171b23] p-3 rounded-xl border border-gray-800/80">
+            <div className="space-y-3.5 text-xs text-gray-300 leading-relaxed">
+              <div className="bg-[#171b23] p-3 rounded-xl border border-gray-800/80">
                 <span className="font-bold text-white text-sm block mb-1">
                   🎯 Что делает сервис?
                 </span>
@@ -654,7 +745,8 @@ export default function Home() {
                   🚀 Встроенные возможности:
                 </span>
                 <ul className="list-disc list-inside space-y-1 text-gray-300">
-                  <li><strong>Загрузка в 1 клик:</strong> вставка текста, файлов Word (.docx), текстовых файлов (.txt) или перетаскивание фото с доски.</li>
+                  <li><strong>Свайп-навигация:</strong> листай билеты пальцем одной рукой под партой или стрелками на клавиатуре.</li>
+                  <li><strong>Загрузка в 1 клик:</strong> вставка текста, файлов Word (.docx), текстовых файлов (.txt) или фото с доски.</li>
                   <li><strong>OCR и скриншоты:</strong> нажми Ctrl + V со скриншотом в буфере обмена — текст распознается автоматически.</li>
                   <li><strong>Аудио-суфлёр:</strong> озвучка ответа прямо в беспроводной наушник.</li>
                   <li><strong>Моментальный поиск (Ctrl + K):</strong> мгновенно находит нужный билет по формулам и терминам прямо на экзамене.</li>
