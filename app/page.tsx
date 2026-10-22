@@ -642,12 +642,11 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="space-y-3.5 text-xs text-gray-300 leading-relaxed">
-              <div className="bg-[#171b23] p-3 rounded-xl border border-gray-800/80">
+            <div className="bg-[#171b23] p-3 rounded-xl border border-gray-800/80">
                 <span className="font-bold text-white text-sm block mb-1">
                   🎯 Что делает сервис?
                 </span>
-                ExamZero убирает до 90% «воды» из учебников и лекций[cite: 5]. Наш сайт превращает огромные темы в ёмкие карточки: главная мысль за 1 минуту, академический ответ на 5, формулы и частые подвохи преподавателей[cite: 5].
+                ExamZero убирает до 90% «воды» из учебников и лекций. Наш сайт превращает огромные темы в ёмкие карточки: главная мысль за 1 минуту, академический ответ на 5, формулы и частые подвохи преподавателей.
               </div>
 
               <div className="bg-[#171b23] p-3 rounded-xl border border-gray-800/80">
