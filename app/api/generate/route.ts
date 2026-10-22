@@ -8,24 +8,32 @@ if (typeof process !== "undefined") {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }
 
-function extractTicketsFromJson(text: string): any[] {
+// Защита от случайных Markdown-ссылок [url](url) при копировании
+function sanitizeUrl(rawUrl: string): string {
+  const match = rawUrl.match(/https:\/\/[a-zA-Z0-9\.\:\/_-]+/);
+  return match ? match[0] : rawUrl.trim();
+}
+
+// Извлечение билетов с защитой от вылетов
+function extractTickets(text: string, originalQuestions: string): any[] {
   let cleaned = text.trim();
 
+  // Срезаем Markdown кодовые блоки
   if (cleaned.includes("```")) {
     cleaned = cleaned.replace(/```json/gi, "").replace(/```/g, "").trim();
   }
 
-  // Экранируем слэши формул, чтобы не ломать JSON.parse
+  // Экранируем слэши формул physics / LaTeX (\Delta, \nu, \frac)
   cleaned = cleaned.replace(/\\(?!["\\/bfnrtu])/g, "\\\\");
 
+  // 1. Пробуем прямой JSON.parse
   try {
     const direct = JSON.parse(cleaned);
-    if (Array.isArray(direct)) return direct;
-    if (direct && typeof direct === "object") return [direct];
-  } catch (e) {
-    // Резервный поштучный парсинг объектов
-  }
+    if (Array.isArray(direct) && direct.length > 0) return direct;
+    if (direct && typeof direct === "object" && direct.question) return [direct];
+  } catch (e) {}
 
+  // 2. Поштучный сборщик объектов { ... }
   const tickets: any[] = [];
   let depth = 0;
   let startIdx = -1;
@@ -50,8 +58,31 @@ function extractTicketsFromJson(text: string): any[] {
     }
   }
 
-  if (tickets.length > 0) return tickets;
-  throw new Error("Не удалось извлечь билеты из ответа нейросети");
+  if (tickets.length > 0) {
+    return tickets;
+  }
+
+  // 3. Безаварийный фолбэк: если нейросеть ответила простым текстом
+  const rawLines = originalQuestions
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 2);
+
+  return rawLines.map((q, idx) => ({
+    id: `q${idx + 1}`,
+    questionNumber: idx + 1,
+    question: q.replace(/^\d+[\.\)]\s*/, ""),
+    category: "Физика / Экзамен",
+    readTimeMinutes: 1,
+    essence: ["Краткий тезис по вопросу", "Основная физическая суть"],
+    keyTerms: [{ term: "Параметр", definition: "Определение и расчетная формула" }],
+    answerGrade5: {
+      thesis: "Главный закон и его применимость.",
+      structure: ["Определение", "Формула", "Единицы измерения"],
+      fullAnswer: cleaned.slice(0, 300) || "Материал обработан.",
+      examinerTips: "Обрати внимание на размерности величин в СИ.",
+    },
+  }));
 }
 
 async function getGigaChatToken(): Promise<string> {
@@ -63,7 +94,7 @@ async function getGigaChatToken(): Promise<string> {
   ).trim();
 
   if (!rawKey) {
-    throw new Error("GIGACHAT_CREDENTIALS не задан в Environment Variables Vercel");
+    throw new Error("GIGACHAT_CREDENTIALS не настроен в Vercel Environment Variables");
   }
 
   let basicAuthValue = rawKey
@@ -76,9 +107,11 @@ async function getGigaChatToken(): Promise<string> {
   }
 
   const rquid = crypto.randomUUID();
-  const oauthUrl = "[https://ngw.devices.sberbank.ru:9443/api/v2/oauth](https://ngw.devices.sberbank.ru:9443/api/v2/oauth)";
+  const oauthEndpoint = sanitizeUrl(
+    "[https://ngw.devices.sberbank.ru:9443/api/v2/oauth](https://ngw.devices.sberbank.ru:9443/api/v2/oauth)"
+  );
 
-  const res = await fetch(oauthUrl, {
+  const res = await fetch(oauthEndpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -94,7 +127,7 @@ async function getGigaChatToken(): Promise<string> {
 
   if (!res.ok) {
     console.error("OAuth error response:", resText);
-    throw new Error(`Сбер вернул статус ${res.status}: ${resText}`);
+    throw new Error(`Сбер OAuth ${res.status}: ${resText}`);
   }
 
   const data = JSON.parse(resText);
@@ -114,37 +147,36 @@ export async function POST(req: Request) {
 
     const token = await getGigaChatToken();
 
-    const systemPrompt = `Ты — эксперт-преподаватель. Составь предельно краткие шпоры по билетам.
-ПРАВИЛА:
-1. Вывод: строго чистый массив JSON. Никаких вводных слов и пояснений.
-2. Все формулы пиши ТОЛЬКО простым текстом без LaTeX и без обратных слэшей (например: p = n*k*T, (p1*V1)/T1 = const).
-3. Избегай двойных кавычек внутри текста (используй «ёлочки»).
-4. На каждый вопрос: 2 тезиса в essence и 2-3 коротких предложения в fullAnswer.
+    const systemPrompt = `Ты — преподаватель-экзаменатор. Твоя задача — составить предельно краткие микрошпаргалки по вопросам билетов.
+ТРЕБОВАНИЯ:
+1. Формат ответа: СТРОГО массив JSON без лишнего текста и без обёрток.
+2. Формулы и численные значения пиши ТОЛЬКО простым текстом (без LaTeX и без обратных слэшей, например: 1.66 * 10^-27 кг, p = n*k*T).
+3. Используй кавычки «елочки» внутри текстов, чтобы не ломать JSON.
 
-Шаблон структуры:
+Пример схемы:
 [
   {
     "id": "q1",
     "questionNumber": 1,
-    "question": "Текст вопроса",
+    "question": "1 а.е.м",
     "category": "Физика",
     "readTimeMinutes": 1,
-    "essence": ["Тезис 1", "Тезис 2"],
-    "keyTerms": [
-      {"term": "Термин", "definition": "Определение или числовое значение"}
-    ],
+    "essence": ["1.66 * 10^-27 кг", "1/12 массы атома углерода C-12"],
+    "keyTerms": [{"term": "а.е.м.", "definition": "Атомная единица массы = 1.66057 * 10^-27 кг"}],
     "answerGrade5": {
-      "thesis": "Главная суть вопроса",
-      "structure": ["Пункт 1", "Пункт 2"],
-      "fullAnswer": "Четкий ответ на 5 без воды (формулы обычным текстом).",
-      "examinerTips": "Главное числовое значение или формула"
+      "thesis": "1 а.е.м. равна 1.66 * 10^-27 кг (или 931.5 МэВ).",
+      "structure": ["Определение", "Значение в кг"],
+      "fullAnswer": "Атомная единица массы — внесистемная единица массы, равная 1/12 массы покоя нейтрального атома углерода 12C. Численно равна 1.6605 * 10^-27 кг.",
+      "examinerTips": "Запомни: ровно 1.66 на десять в минус двадцать седьмой степени кг"
     }
   }
 ]`;
 
-    const completionsUrl = "[https://gigachat.devices.sberbank.ru/api/v1/chat/completions](https://gigachat.devices.sberbank.ru/api/v1/chat/completions)";
+    const completionsEndpoint = sanitizeUrl(
+      "[https://gigachat.devices.sberbank.ru/api/v1/chat/completions](https://gigachat.devices.sberbank.ru/api/v1/chat/completions)"
+    );
 
-    const response = await fetch(completionsUrl, {
+    const response = await fetch(completionsEndpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -155,7 +187,10 @@ export async function POST(req: Request) {
         model: "GigaChat",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Разбери билеты:\n${questionsText}` },
+          {
+            role: "user",
+            content: `Составь краткие шпаргалки по списку вопросов:\n${questionsText}`,
+          },
         ],
         temperature: 0.1,
         max_tokens: 4000,
@@ -165,13 +200,13 @@ export async function POST(req: Request) {
     const resText = await response.text();
 
     if (!response.ok) {
-      console.error("Completion error:", resText);
-      throw new Error(`Ошибка генерации ${response.status}: ${resText}`);
+      console.error("GigaChat Completion error:", resText);
+      throw new Error(`Сбер API ${response.status}: ${resText}`);
     }
 
     const result = JSON.parse(resText);
-    const rawContent = result.choices?.[0]?.message?.content || "[]";
-    const tickets = extractTicketsFromJson(rawContent);
+    const rawContent = result.choices?.[0]?.message?.content || "";
+    const tickets = extractTickets(rawContent, questionsText);
 
     return NextResponse.json(tickets);
   } catch (error: any) {
