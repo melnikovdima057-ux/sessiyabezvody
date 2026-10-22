@@ -27,11 +27,11 @@ export default function Home() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
 
-  // Живой поиск
+  // Поиск
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Загрузка и распознавание файлов / фото
+  // Загрузка файлов
   const [fileParsing, setFileParsing] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<number | null>(null);
   const [fileStatus, setFileStatus] = useState<string | null>(null);
@@ -51,7 +51,6 @@ export default function Home() {
     }
   }, []);
 
-  // Горячая клавиша Ctrl+K для мгновенного перехода в поиск
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -63,7 +62,6 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Таймер
   useEffect(() => {
     let interval: any = null;
     if (isTimerRunning && timerSeconds > 0) {
@@ -76,7 +74,6 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [isTimerRunning, timerSeconds]);
 
-  // Быстрая вставка скриншота из буфера обмена (Ctrl + V)
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
       if (e.clipboardData && e.clipboardData.files.length > 0) {
@@ -91,7 +88,6 @@ export default function Home() {
     return () => window.removeEventListener("paste", handlePaste);
   }, []);
 
-  // Динамическая загрузка Mammoth для Word
   const loadMammoth = (): Promise<any> => {
     return new Promise((resolve, reject) => {
       if ((window as any).mammoth) return resolve((window as any).mammoth);
@@ -104,7 +100,6 @@ export default function Home() {
     });
   };
 
-  // Динамическая загрузка Tesseract OCR для фото
   const loadTesseract = (): Promise<any> => {
     return new Promise((resolve, reject) => {
       if ((window as any).Tesseract) return resolve((window as any).Tesseract);
@@ -157,13 +152,13 @@ export default function Home() {
           .join("\n");
 
         setInputText(recognized);
-        setFileStatus("Фото с доски успешно распознано!");
+        setFileStatus("Фото успешно распознано!");
       } else {
         alert("Поддерживаются форматы: .docx, .txt или фото (.png, .jpg, .webp)");
       }
     } catch (err) {
       console.error(err);
-      alert("Не удалось обработать файл или фото. Попробуй сделать фото более четким.");
+      alert("Не удалось обработать файл или фото.");
     } finally {
       setFileParsing(false);
       setOcrProgress(null);
@@ -196,15 +191,11 @@ export default function Home() {
         body: JSON.stringify({ questionsText: inputText }),
       });
 
-      if (!res.ok) {
-        throw new Error("Ошибка генерации");
-      }
+      if (!res.ok) throw new Error("Ошибка генерации");
 
       const data = await res.json();
       setTickets(data);
-      if (data.length > 0) {
-        setSelectedTicket(data[0]);
-      }
+      if (data.length > 0) setSelectedTicket(data[0]);
     } catch (err: any) {
       alert("Не удалось разобрать билеты. Попробуй ещё раз :)");
     } finally {
@@ -220,7 +211,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: 49,
-          description: "Полный доступ к генератору билетов СессияБезВоды",
+          description: "Полный доступ к генератору билетов ExamZero",
           returnUrl: `${window.location.origin}/?payment=success`,
         }),
       });
@@ -284,12 +275,11 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "Шпоры_СессияБезВоды.txt";
+    link.download = "Шпоры_ExamZero.txt";
     link.click();
     URL.revokeObjectURL(url);
   };
 
-  // Мгновенная фильтрация по вопросу, сути, формулам и терминам
   const filteredTickets = useMemo(() => {
     if (!searchQuery.trim()) return tickets;
     const query = searchQuery.toLowerCase().trim();
@@ -311,14 +301,17 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-4 md:p-8 font-sans">
-      {/* Хедер */}
+      {/* Хедер ExamZero */}
       <header className="max-w-5xl mx-auto flex justify-between items-center pb-6 border-b border-gray-800">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-            ⚡ СессияБезВоды
+          <h1 className="text-xl md:text-2xl font-black tracking-tight text-white flex items-center gap-2">
+            <span className="text-indigo-500">Exam</span>Zero
+            <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-700/60 px-1.5 py-0.5 rounded font-mono uppercase">
+              AI
+            </span>
           </h1>
           <p className="text-xs md:text-sm text-gray-400">
-            Умный генератор микрошпаргалок без воды
+            Микрошпаргалки без воды • Ноль лишней теории
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -345,7 +338,6 @@ export default function Home() {
       </header>
 
       <div className="max-w-5xl mx-auto mt-6 grid grid-cols-1 md:grid-cols-12 gap-6">
-        {/* Поле ввода, фильтр и загрузка файлов */}
         <section className="md:col-span-5 flex flex-col gap-4">
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-lg">
             <div className="flex justify-between items-center mb-2">
@@ -374,7 +366,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Зона ввода */}
             <div
               onDragOver={(e) => {
                 e.preventDefault();
@@ -435,10 +426,8 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Нумпад билетов, живой поиск и экспорт */}
           {tickets.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl shadow flex flex-col gap-3">
-              {/* Строка быстрого поиска */}
               <div className="relative">
                 <input
                   ref={searchInputRef}
@@ -511,7 +500,6 @@ export default function Home() {
           )}
         </section>
 
-        {/* Экран просмотра шпоры */}
         <section className="md:col-span-7">
           {selectedTicket ? (
             <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl shadow-lg flex flex-col gap-5">
@@ -537,7 +525,6 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* Суть за 1 минуту */}
               <div className="bg-[#14181f] border border-gray-800 p-3.5 rounded-lg">
                 <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider block mb-2">
                   ⚡ Суть за 1 минуту (тезисы):
@@ -549,7 +536,6 @@ export default function Home() {
                 </ul>
               </div>
 
-              {/* Главный ответ на 5 */}
               <div className="bg-[#14181f] border border-gray-800 p-3.5 rounded-lg">
                 <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider block mb-1">
                   🎓 Ответ на оценку «Отлично»:
@@ -568,7 +554,6 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Термины и формулы */}
               {selectedTicket.keyTerms && selectedTicket.keyTerms.length > 0 && (
                 <div className="bg-[#14181f] border border-gray-800 p-3.5 rounded-lg">
                   <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider block mb-2">
@@ -599,14 +584,13 @@ export default function Home() {
         </section>
       </div>
 
-      {/* Модальное окно оплаты ЮKassa / СБП */}
       {showPayModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-gray-900 border border-gray-800 w-full max-w-sm rounded-2xl p-6 shadow-2xl flex flex-col gap-4 text-center">
             <div className="text-3xl">🚀</div>
             <div>
               <h3 className="text-lg font-bold text-white">
-                Полный разбор билетов
+                ExamZero PRO
               </h3>
               <p className="text-xs text-gray-400 mt-1">
                 Генерация без ограничений по количеству вопросов, шпаргалки без воды, таймер и аудиосуфлёр.
