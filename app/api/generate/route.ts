@@ -1,6 +1,51 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
+function isValidToken(token: string | null): boolean {
+  if (!token) return false;
+  const parts = token.split(":");
+  if (parts.length !== 3) return false;
+
+  const [paymentId, timestamp, clientSig] = parts;
+  const paymentSecret = process.env.PAYMENT_SECRET || "default_examzero_secret";
+
+  const expectedSig = crypto
+    .createHmac("sha256", paymentSecret)
+    .update(`${paymentId}:${timestamp}`)
+    .digest("hex");
+
+  return clientSig === expectedSig;
+}
+
+export async function POST(req: Request) {
+  try {
+    const { questionsText, token } = await req.json();
+
+    if (!questionsText || !questionsText.trim()) {
+      return NextResponse.json({ error: "Текст пуст" }, { status: 400 });
+    }
+
+    const lines = questionsText
+      .split("\n")
+      .map((l: string) => l.trim())
+      .filter((l: string) => l.length > 3);
+
+    const isPaid = isValidToken(token);
+
+    // Если не оплачено, бэкенд жестко обрезает до первых 2 билетов
+    let questionsToProcess = lines;
+    if (!isPaid) {
+      if (lines.length > 2) {
+        return NextResponse.json(
+          { error: "Необходима оплата для генерации более 2 билетов" },
+          { status: 402 }
+        );
+      }
+      questionsToProcess = lines.slice(0, 2);
+    }
+import { NextResponse } from "next/server";
+import crypto from "crypto";
+
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
