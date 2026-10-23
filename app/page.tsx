@@ -164,15 +164,34 @@ export default function Home() {
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
 
-  useEffect(() => {
-    const paidInStorage = localStorage.getItem("sessiya_paid") === "true";
+ useEffect(() => {
+    const savedToken = localStorage.getItem("examzero_token");
+    if (savedToken) {
+      setHasPaid(true);
+    }
+
     const matteInStorage = localStorage.getItem("sessiya_matte") === "true";
     if (matteInStorage) setIsTrueMatte(true);
 
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get("payment") === "success" || paidInStorage) {
-      setHasPaid(true);
-      localStorage.setItem("sessiya_paid", "true");
+    const paymentId = urlParams.get("payment_id");
+
+    if (paymentId) {
+      fetch("/api/payment/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentId }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.token) {
+            localStorage.setItem("examzero_token", data.token);
+            setHasPaid(true);
+            window.history.replaceState({}, document.title, window.location.pathname);
+            alert("Оплата успешно подтверждена! Полный доступ открыт :)");
+          }
+        })
+        .catch(() => {});
     }
 
     const codeParam = urlParams.get("sync");
@@ -182,7 +201,6 @@ export default function Home() {
 
     fetchReviews();
   }, []);
-
   const fetchReviews = async () => {
     try {
       const res = await fetch("/api/reviews");
