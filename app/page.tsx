@@ -66,13 +66,13 @@ export default function Home() {
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
 
-  // Анимация счётчиков (ровно 10 секунд)
+  // Анимация счётчиков (ровно 5 секунд)
   const [statTickets, setStatTickets] = useState(0);
   const [statRating, setStatRating] = useState(1.0);
   const [statSeconds, setStatSeconds] = useState(0);
 
   useEffect(() => {
-    const duration = 10000; // 10 секунд
+    const duration = 5000; // 5 секунд
     const startTime = performance.now();
 
     const updateCounters = (now: number) => {
