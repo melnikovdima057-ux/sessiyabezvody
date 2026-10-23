@@ -456,7 +456,30 @@ export default function Home() {
       processFile(e.dataTransfer.files[0]);
     }
   };
+const handleCreatePayment = async () => {
+    setPayLoading(true);
+    try {
+      const res = await fetch("/api/payment/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          returnUrl: `${window.location.origin}/?payment_id={payment_id}`,
+        }),
+      });
 
+      const data = await res.json();
+      if (data.confirmationUrl) {
+        if (data.paymentId) sessionStorage.setItem("pending_payment_id", data.paymentId);
+        window.location.href = data.confirmationUrl;
+      } else {
+        alert(data.error || "Ошибка инициализации платежа");
+      }
+    } catch (err) {
+      alert("Не удалось подключиться к шлюзу оплаты");
+    } finally {
+      setPayLoading(false);
+    }
+  };
   const handleGenerateSyncCode = async () => {
     if (tickets.length === 0) return;
     setSyncLoading(true);
