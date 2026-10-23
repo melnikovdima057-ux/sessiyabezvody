@@ -480,7 +480,27 @@ const handleCreatePayment = async () => {
       setPayLoading(false);
     }
   };
-
+const handleGenerateSyncCode = async () => {
+    if (tickets.length === 0) return;
+    setSyncLoading(true);
+    try {
+      const res = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickets }),
+      });
+      const data = await res.json();
+      if (data.code) {
+        setSyncCode(data.code);
+      } else {
+        alert("Не удалось создать код синхронизации");
+      }
+    } catch (err) {
+      alert("Ошибка при синхронизации");
+    } finally {
+      setSyncLoading(false);
+    }
+  };
   const fetchTicketsByCode = async (codeToFetch: string) => {
     if (!codeToFetch.trim()) return;
     setSyncLoading(true);
