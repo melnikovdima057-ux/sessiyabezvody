@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
+import { Manrope } from "next/font/google";
 import "./globals.css";
+
+const manrope = Manrope({
+  subsets: ["latin", "cyrillic"],
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "ExamZero — Умный генератор микрошпаргалок без воды",
@@ -27,7 +34,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ru">
-      <body className="bg-[#0d0f12] text-gray-100 antialiased selection:bg-indigo-500 selection:text-white">
+      <body
+        className={`${manrope.className} bg-[#0d0f12] text-gray-100 antialiased selection:bg-indigo-500 selection:text-white`}
+      >
         {children}
       </body>
     </html>
