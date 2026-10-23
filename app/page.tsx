@@ -129,23 +129,19 @@ export default function Home() {
           text: revText,
         }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.review) {
-          setReviews((prev) => [data.review, ...prev]);
-        }
-        setShowReviewModal(false);
-        setRevText("");
-        setRevSubject("");
-        alert("Спасибо! Отзыв опубликован :)");
-      }
+    if (res.ok) {
+      setShowReviewModal(false);
+      setRevText("");
+      setRevSubject("");
+      setRevName("");
+      alert("Спасибо! Отзыв отправлен на модерацию и скоро появится на сайте :)");
+    }
     } catch (e) {
       alert("Не удалось отправить отзыв");
     } finally {
       setSubmittingReview(false);
     }
   };
-
   const toggleTrueMatte = () => {
     setIsTrueMatte((prev) => {
       const next = !prev;
