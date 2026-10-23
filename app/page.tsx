@@ -457,35 +457,6 @@ export default function Home() {
     }
   };
 
-  const handleGenerate = async () => {
-    if (!inputText.trim()) return;
-
-    const lines = inputText.split("\n").filter((l) => l.trim().length > 3);
-    if (lines.length > 2 && !hasPaid) {
-      setShowPayModal(true);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questionsText: inputText }),
-      });
-
-      if (!res.ok) throw new Error("Ошибка генерации");
-
-      const data = await res.json();
-      setTickets(data);
-      if (data.length > 0) setSelectedTicket(data[0]);
-    } catch (err: any) {
-      alert("Не удалось разобрать билеты. Попробуй ещё раз :)");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleGenerateSyncCode = async () => {
     if (tickets.length === 0) return;
     setSyncLoading(true);
