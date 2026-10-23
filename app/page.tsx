@@ -25,6 +25,7 @@ interface Review {
   rating: number;
   text: string;
   date: string;
+  approved?: boolean;
 }
 
 const LOADING_STATUSES = [
@@ -33,6 +34,25 @@ const LOADING_STATUSES = [
   "Формируем ответы на оценку 5...",
   "Выделяем формулы и определения...",
   "Почти готово, финализируем билеты...",
+];
+
+const FAQ_ITEMS = [
+  {
+    q: "Что делать, если в аудитории глушат связь или нет интернета?",
+    a: "Нажми кнопку «💾 Офлайн HTML» над списком билетов. Сервис скачает один автономный HTML-файл, в котором уже есть все твои билеты, стили и мгновенный поиск. Он открывается в любом браузере даже в авиарежиме.",
+  },
+  {
+    q: "Как работает экстренная очистка (Panic Wipe)?",
+    a: "Нажми сочетание клавиш Shift + Esc или кликни по кнопке «🚨 Стереть всё» в шапке. Сайт моментально затрёт локальное хранилище, удалит все билеты и перенаправит вкладку на главную страницу Google.",
+  },
+  {
+    q: "Подойдёт ли сервис для точных и технических предметов?",
+    a: "Да, система специально натренирована на формулы, физические законы, технические определения и электротехнику. Формулы и термины выносятся в отдельные визуальные блоки.",
+  },
+  {
+    q: "Как быстро проходит оплата 49 ₽?",
+    a: "Оплата проходит мгновенно через Систему быстрых платежей (СБП) по QR-коду любого банка РФ. Доступ разблокируется сразу после подтверждения платежа.",
+  },
 ];
 
 export default function Home() {
@@ -45,6 +65,37 @@ export default function Home() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
+
+  // Анимация счётчиков (ровно 10 секунд)
+  const [statTickets, setStatTickets] = useState(0);
+  const [statRating, setStatRating] = useState(1.0);
+  const [statSeconds, setStatSeconds] = useState(0);
+
+  useEffect(() => {
+    const duration = 10000; // 10 секунд
+    const startTime = performance.now();
+
+    const updateCounters = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Плавное торможение к концу (easeOutQuad)
+      const ease = 1 - (1 - progress) * (1 - progress);
+
+      setStatTickets(Math.floor(ease * 1840));
+      setStatRating(Number((1.0 + ease * 3.9).toFixed(1)));
+      setStatSeconds(Math.floor(ease * 45));
+
+      if (progress < 1) {
+        requestAnimationFrame(updateCounters);
+      }
+    };
+
+    const frameId = requestAnimationFrame(updateCounters);
+    return () => cancelAnimationFrame(frameId);
+  }, []);
+
+  // FAQ аккордеон
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   // Отзывы
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -110,9 +161,7 @@ export default function Home() {
         const data = await res.json();
         setReviews(data);
       }
-    } catch (e) {
-      // Игнорируем ошибку при оффлайне
-    }
+    } catch (e) {}
   };
 
   const handleSendReview = async () => {
@@ -129,19 +178,20 @@ export default function Home() {
           text: revText,
         }),
       });
-    if (res.ok) {
-      setShowReviewModal(false);
-      setRevText("");
-      setRevSubject("");
-      setRevName("");
-      alert("Спасибо! Отзыв отправлен на модерацию и скоро появится на сайте :)");
-    }
+      if (res.ok) {
+        setShowReviewModal(false);
+        setRevText("");
+        setRevSubject("");
+        setRevName("");
+        alert("Спасибо! Отзыв отправлен на модерацию и скоро появится на сайте :)");
+      }
     } catch (e) {
       alert("Не удалось отправить отзыв");
     } finally {
       setSubmittingReview(false);
     }
   };
+
   const toggleTrueMatte = () => {
     setIsTrueMatte((prev) => {
       const next = !prev;
@@ -150,7 +200,6 @@ export default function Home() {
     });
   };
 
-  // Динамический статус загрузки
   useEffect(() => {
     let interval: any = null;
     if (loading) {
@@ -174,7 +223,6 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [isTimerRunning, timerSeconds]);
 
-  // Panic Wipe: мгновенная зачистка и редирект
   const handlePanicWipe = () => {
     setInputText("");
     setTickets([]);
@@ -346,7 +394,6 @@ export default function Home() {
         alert("Поддерживаются форматы: .docx, .txt или фото (.png, .jpg, .webp)");
       }
     } catch (err) {
-      console.error(err);
       alert("Не удалось обработать файл или фото.");
     } finally {
       setFileParsing(false);
@@ -621,7 +668,7 @@ export default function Home() {
 
   return (
     <main
-      className={`min-h-screen p-4 md:p-8 font-sans pb-24 md:pb-8 transition-colors ${
+      className={`min-h-screen p-4 md:p-8 font-sans pb-24 md:pb-12 transition-colors ${
         isTrueMatte
           ? "bg-[#161616] text-[#7a828e]"
           : "bg-[#0d0f12] text-gray-100"
@@ -668,13 +715,13 @@ export default function Home() {
               Микрошпаргалки без воды
             </p>
             <span className="text-[10px] bg-emerald-950/50 text-emerald-400 border border-emerald-800/60 px-1.5 py-0.2 rounded font-mono">
-              ⭐ 4.9/5 (140+ сданных зачётов)
+              ⭐ {statRating.toFixed(1)}/5.0
             </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Режим True Matte */}
+          {/* True Matte */}
           <button
             onClick={toggleTrueMatte}
             className={`text-xs px-2.5 py-1.5 rounded-lg border flex items-center gap-1 transition-colors ${
@@ -682,7 +729,7 @@ export default function Home() {
                 ? "bg-[#222] border-[#444] text-[#aaa]"
                 : "bg-gray-900 border-gray-700 text-gray-300 hover:border-gray-500"
             }`}
-            title="Режим True Matte (матовый графит без бликов на очках)"
+            title="Режим True Matte (матовый графит без бликов)"
           >
             <span>🕶️</span>
             <span className="hidden sm:inline">
@@ -759,6 +806,7 @@ export default function Home() {
         </div>
       </header>
 
+      {/* Основная рабочая зона */}
       <div className="max-w-5xl mx-auto mt-6 grid grid-cols-1 md:grid-cols-12 gap-6">
         <section className="md:col-span-5 flex flex-col gap-4">
           <div
@@ -1169,14 +1217,273 @@ export default function Home() {
         </section>
       </div>
 
-      {/* Секция живых отзывов студентов */}
-      <section className="max-w-5xl mx-auto mt-12 pt-8 border-t border-gray-800">
+      {/* 1. ПОЛОСА ЖИВОЙ СТАТИСТИКИ (анимация ровно за 10 сек) */}
+      <section className="max-w-5xl mx-auto mt-12">
+        <div
+          className={`grid grid-cols-2 md:grid-cols-4 gap-4 p-5 rounded-2xl border shadow-lg ${
+            isTrueMatte
+              ? "bg-[#1a1a1a] border-[#262626]"
+              : "bg-gray-900/90 border-gray-800"
+          }`}
+        >
+          <div className="text-center md:text-left">
+            <span className="text-2xl md:text-3xl font-black font-mono text-indigo-400">
+              {statTickets.toLocaleString("ru-RU")}+
+            </span>
+            <p className="text-xs text-gray-400 mt-0.5">разобранных билетов</p>
+          </div>
+
+          <div className="text-center md:text-left border-l border-gray-800/80 pl-0 md:pl-4">
+            <span className="text-2xl md:text-3xl font-black font-mono text-emerald-400">
+              {statRating.toFixed(1)} / 5.0
+            </span>
+            <p className="text-xs text-gray-400 mt-0.5">средняя оценка на сдаче</p>
+          </div>
+
+          <div className="text-center md:text-left border-t md:border-t-0 md:border-l border-gray-800/80 pt-3 md:pt-0 pl-0 md:pl-4">
+            <span className="text-2xl md:text-3xl font-black font-mono text-amber-400">
+              {statSeconds} сек
+            </span>
+            <p className="text-xs text-gray-400 mt-0.5">на чтение сути билета</p>
+          </div>
+
+          <div className="text-center md:text-left border-t md:border-t-0 md:border-l border-gray-800/80 pt-3 md:pt-0 pl-0 md:pl-4">
+            <span className="text-2xl md:text-3xl font-black font-mono text-blue-400">
+              0 Мб
+            </span>
+            <p className="text-xs text-gray-400 mt-0.5">интернета в офлайн-режиме</p>
+          </div>
+        </div>
+      </section>
+
+      {/* 2. БЛОК «КАК ЭТО РАБОТАЕТ ЗА 3 ШАГА» */}
+      <section className="max-w-5xl mx-auto mt-14">
+        <div className="text-center max-w-lg mx-auto mb-8">
+          <span className="text-xs font-mono uppercase tracking-widest text-indigo-400">
+            Простой алгоритм
+          </span>
+          <h3 className="text-xl md:text-2xl font-black text-white mt-1">
+            Как закрыть сессию за 3 шага
+          </h3>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div
+            className={`p-6 rounded-2xl border flex flex-col justify-between ${
+              isTrueMatte
+                ? "bg-[#181818] border-[#262626]"
+                : "bg-gray-900 border-gray-800"
+            }`}
+          >
+            <div>
+              <span className="text-3xl font-black font-mono text-indigo-500/40 block mb-2">
+                01
+              </span>
+              <h4 className="font-bold text-white text-base mb-1.5">
+                Загрузи вопросы
+              </h4>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Вставь список текстом, загрузи документ Word (.docx), файл .txt или нажми Ctrl + V со скриншотом вопросов с доски.
+              </p>
+            </div>
+            <div className="mt-4 pt-3 border-t border-gray-800/60 text-[11px] text-indigo-400 font-mono">
+              OCR распознавание в 1 клик
+            </div>
+          </div>
+
+          <div
+            className={`p-6 rounded-2xl border flex flex-col justify-between ${
+              isTrueMatte
+                ? "bg-[#181818] border-[#262626]"
+                : "bg-gray-900 border-gray-800"
+            }`}
+          >
+            <div>
+              <span className="text-3xl font-black font-mono text-emerald-500/40 block mb-2">
+                02
+              </span>
+              <h4 className="font-bold text-white text-base mb-1.5">
+                Получи выжимку без воды
+              </h4>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Сервис удалит лишние рассуждения из учебников, оставив суть за 1 минуту, академический тезис на 5 и формулы.
+              </p>
+            </div>
+            <div className="mt-4 pt-3 border-t border-gray-800/60 text-[11px] text-emerald-400 font-mono">
+              Никакой академической воды
+            </div>
+          </div>
+
+          <div
+            className={`p-6 rounded-2xl border flex flex-col justify-between ${
+              isTrueMatte
+                ? "bg-[#181818] border-[#262626]"
+                : "bg-gray-900 border-gray-800"
+            }`}
+          >
+            <div>
+              <span className="text-3xl font-black font-mono text-amber-500/40 block mb-2">
+                03
+              </span>
+              <h4 className="font-bold text-white text-base mb-1.5">
+                Сдавай без палева
+              </h4>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Передай билеты на смартфон по QR-коду, включи режим True Matte без бликов на очках или листай свайпами под партой.
+              </p>
+            </div>
+            <div className="mt-4 pt-3 border-t border-gray-800/60 text-[11px] text-amber-400 font-mono">
+              Синхронизация ПК ➔ Телефон
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 3. BENTO GRID «СТЕЛС-ФИЧИ ДЛЯ СДАЧИ» */}
+      <section className="max-w-5xl mx-auto mt-14">
+        <div className="text-center max-w-lg mx-auto mb-8">
+          <span className="text-xs font-mono uppercase tracking-widest text-indigo-400">
+            ExamZero Stealth
+          </span>
+          <h3 className="text-xl md:text-2xl font-black text-white mt-1">
+            Создано под реальные экзамены
+          </h3>
+          <p className="text-xs text-gray-400 mt-1">
+            Инструменты, которых нет в обычных конспектах и стандартных нейросетях
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Большая карточка: True Matte */}
+          <div
+            className={`md:col-span-2 p-6 rounded-2xl border flex flex-col justify-between ${
+              isTrueMatte
+                ? "bg-[#1a1a1a] border-[#2c2c2c]"
+                : "bg-[#121620] border-indigo-950"
+            }`}
+          >
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-2xl">🕶️</span>
+              <span className="text-[10px] font-mono bg-indigo-950 border border-indigo-800 text-indigo-300 px-2 py-0.5 rounded uppercase">
+                Анти-блик
+              </span>
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-white mb-1.5">
+                Режим True Matte (Матовый графит)
+              </h4>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Убирает все контрастные белые и синие пиксели. Экран телефона окрашивается в глубокий матовый графитовый тон, который не отражается на оправе очков, не освещает лицо и не привлекает внимание преподавателя в полутёмной аудитории.
+              </p>
+            </div>
+          </div>
+
+          {/* Карточка: Offline Drop */}
+          <div
+            className={`p-6 rounded-2xl border flex flex-col justify-between ${
+              isTrueMatte
+                ? "bg-[#1a1a1a] border-[#2c2c2c]"
+                : "bg-[#11141a] border-gray-800"
+            }`}
+          >
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-2xl">💾</span>
+              <span className="text-[10px] font-mono bg-emerald-950 border border-emerald-800 text-emerald-300 px-2 py-0.5 rounded uppercase">
+                Без сети
+              </span>
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-white mb-1.5">
+                Офлайн HTML-файл
+              </h4>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Скачай автономный файл весом в пару килобайт. Работает при включенных глушилках и в подвальных кабинетах без подключения к сети.
+              </p>
+            </div>
+          </div>
+
+          {/* Карточка: Panic Wipe */}
+          <div
+            className={`p-6 rounded-2xl border flex flex-col justify-between ${
+              isTrueMatte
+                ? "bg-[#1a1a1a] border-[#2c2c2c]"
+                : "bg-[#11141a] border-gray-800"
+            }`}
+          >
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-2xl">🚨</span>
+              <span className="text-[10px] font-mono bg-rose-950 border border-rose-800 text-rose-300 px-2 py-0.5 rounded uppercase">
+                Shift + Esc
+              </span>
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-white mb-1.5">
+                Panic Wipe
+              </h4>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Если препод подходит к парте и просит показать телефон — нажатие одной кнопки стирает кэш и перенаправляет на Google.
+              </p>
+            </div>
+          </div>
+
+          {/* Карточка: Управление под партой */}
+          <div
+            className={`p-6 rounded-2xl border flex flex-col justify-between ${
+              isTrueMatte
+                ? "bg-[#1a1a1a] border-[#2c2c2c]"
+                : "bg-[#11141a] border-gray-800"
+            }`}
+          >
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-2xl">👆</span>
+              <span className="text-[10px] font-mono bg-amber-950 border border-amber-800 text-amber-300 px-2 py-0.5 rounded uppercase">
+                One Hand
+              </span>
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-white mb-1.5">
+                Свайпы одной рукой
+              </h4>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Листай билеты простым смахиванием пальца или компактным плавающим пультом внизу экрана без лишних движений.
+              </p>
+            </div>
+          </div>
+
+          {/* Карточка: Аудиосуфлёр */}
+          <div
+            className={`p-6 rounded-2xl border flex flex-col justify-between ${
+              isTrueMatte
+                ? "bg-[#1a1a1a] border-[#2c2c2c]"
+                : "bg-[#11141a] border-gray-800"
+            }`}
+          >
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-2xl">🎧</span>
+              <span className="text-[10px] font-mono bg-blue-950 border border-blue-800 text-blue-300 px-2 py-0.5 rounded uppercase">
+                Суфлёр
+              </span>
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-white mb-1.5">
+                Озвучка в наушник
+              </h4>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Голосовой движок диктует главную мысль и тезис прямо в беспроводной наушник на скорости 1.05x.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 4. СЕКЦИЯ ОТЗЫВОВ */}
+      <section className="max-w-5xl mx-auto mt-14 pt-8 border-t border-gray-800">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6">
           <div>
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <span>💬 Отзывы студентов</span>
               <span className="text-xs font-normal text-gray-400 bg-gray-800 px-2 py-0.5 rounded-full">
-                ⭐ 4.9 из 5.0
+                ⭐ {statRating.toFixed(1)} из 5.0
               </span>
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
@@ -1225,6 +1532,68 @@ export default function Home() {
           ))}
         </div>
       </section>
+
+      {/* 5. АККОРДЕОН FAQ */}
+      <section className="max-w-3xl mx-auto mt-14 pt-8 border-t border-gray-800">
+        <div className="text-center mb-8">
+          <span className="text-xs font-mono uppercase tracking-widest text-indigo-400">
+            Вопросы и ответы
+          </span>
+          <h3 className="text-xl font-black text-white mt-1">
+            Частые вопросы перед экзаменом
+          </h3>
+        </div>
+
+        <div className="space-y-3">
+          {FAQ_ITEMS.map((item, idx) => (
+            <div
+              key={idx}
+              className={`border rounded-xl transition-all overflow-hidden ${
+                isTrueMatte
+                  ? "bg-[#181818] border-[#292929]"
+                  : "bg-[#11141a] border-gray-800"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
+                className="w-full p-4 text-left flex justify-between items-center gap-3 text-xs md:text-sm font-semibold text-gray-200 hover:text-white"
+              >
+                <span>{item.q}</span>
+                <span className="text-gray-500 font-mono text-base shrink-0">
+                  {openFaq === idx ? "−" : "+"}
+                </span>
+              </button>
+              {openFaq === idx && (
+                <div className="px-4 pb-4 pt-1 text-xs text-gray-400 leading-relaxed border-t border-gray-800/60">
+                  {item.a}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Футер сервиса */}
+      <footer className="max-w-5xl mx-auto mt-16 pt-6 border-t border-gray-800/80 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-gray-500">
+        <div>
+          © 2026 <span className="text-gray-300 font-bold">ExamZero</span>. Ноль воды на экзаменах.
+        </div>
+        <div className="flex gap-4">
+          <button
+            onClick={() => setShowAboutModal(true)}
+            className="hover:text-gray-300 transition-colors"
+          >
+            О сервисе
+          </button>
+          <a
+            href="mailto:support@examzero.ru"
+            className="hover:text-gray-300 transition-colors"
+          >
+            Поддержка
+          </a>
+        </div>
+      </footer>
 
       {/* Панель для управления одной рукой под партой */}
       {selectedTicket && (
