@@ -480,41 +480,7 @@ const handleCreatePayment = async () => {
       setPayLoading(false);
     }
   };
-const handleGenerate = async () => {
-    if (!inputText.trim()) return;
 
-    const lines = inputText.split("\n").filter((l) => l.trim().length > 3);
-    const token = localStorage.getItem("examzero_token");
-
-    if (lines.length > 2 && !hasPaid) {
-      setShowPayModal(true);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questionsText: inputText, token }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || `Ошибка сервера: ${res.status}`);
-      }
-
-      setTickets(data);
-      if (data.length > 0) setSelectedTicket(data[0]);
-    } catch (err: any) {
-      if (err.message !== "Требуется оплата") {
-        alert(`Ошибка: ${err.message}`);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
   const fetchTicketsByCode = async (codeToFetch: string) => {
     if (!codeToFetch.trim()) return;
     setSyncLoading(true);
