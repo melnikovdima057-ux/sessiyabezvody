@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 export const maxDuration = 60; // Максимальное время работы функции на Vercel
 
 function isValidToken(token: string | null): boolean {
