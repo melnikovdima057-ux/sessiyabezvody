@@ -530,29 +530,41 @@ export default function Home() {
     }
   };
 
-  const handleCreatePayment = async () => {
-    setPayLoading(true);
+ const handleGenerate = async () => {
+    if (!inputText.trim()) return;
+
+    const lines = inputText.split("\n").filter((l) => l.trim().length > 3);
+    const token = localStorage.getItem("examzero_token");
+
+    if (lines.length > 2 && !hasPaid) {
+      setShowPayModal(true);
+      return;
+    }
+
+    setLoading(true);
     try {
-      const res = await fetch("/api/payment/create", {
+      const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: 49,
-          description: "Полный доступ к генератору билетов ExamZero",
-          returnUrl: `${window.location.origin}/?payment=success`,
-        }),
+        body: JSON.stringify({ questionsText: inputText, token }),
       });
 
-      const data = await res.json();
-      if (data.confirmationUrl) {
-        window.location.href = data.confirmationUrl;
-      } else {
-        alert(data.error || "Ошибка инициализации платежа");
+      if (res.status === 402) {
+        setShowPayModal(true);
+        throw new Error("Требуется оплата");
       }
-    } catch (err) {
-      alert("Не удалось подключиться к шлюзу оплаты");
+
+      if (!res.ok) throw new Error("Ошибка генерации");
+
+      const data = await res.json();
+      setTickets(data);
+      if (data.length > 0) setSelectedTicket(data[0]);
+    } catch (err: any) {
+      if (err.message !== "Требуется оплата") {
+        alert("Не удалось разобрать билеты. Попробуй ещё раз :)");
+      }
     } finally {
-      setPayLoading(false);
+      setLoading(false);
     }
   };
 
