@@ -65,7 +65,36 @@ export default function Home() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
+// Предложить идею
+  const [showIdeaModal, setShowIdeaModal] = useState(false);
+  const [ideaContact, setIdeaContact] = useState("");
+  const [ideaText, setIdeaText] = useState("");
+  const [submittingIdea, setSubmittingIdea] = useState(false);
 
+  const handleSendIdea = async () => {
+    if (!ideaText.trim()) return;
+    setSubmittingIdea(true);
+    try {
+      const res = await fetch("/api/ideas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contact: ideaContact,
+          text: ideaText,
+        }),
+      });
+      if (res.ok) {
+        setShowIdeaModal(false);
+        setIdeaContact("");
+        setIdeaText("");
+        alert("Спасибо за идею! Мы обязательно её изучим :)");
+      }
+    } catch (e) {
+      alert("Не удалось отправить идею");
+    } finally {
+      setSubmittingIdea(false);
+    }
+  };
   // Анимация счётчиков (ровно 5 секунд)
   const [statTickets, setStatTickets] = useState(0);
   const [statRating, setStatRating] = useState(1.0);
