@@ -1608,12 +1608,18 @@ export default function Home() {
         <div>
           © 2026 <span className="text-gray-300 font-bold">ExamZero</span>. Ноль воды на экзаменах.
         </div>
-        <div className="flex gap-4">
+        <div className="flex items-center gap-4">
           <button
             onClick={() => setShowAboutModal(true)}
             className="hover:text-gray-300 transition-colors"
           >
             О сервисе
+          </button>
+          <button
+            onClick={() => setShowIdeaModal(true)}
+            className="text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
+          >
+            <span>💡</span> Предложить идею
           </button>
           <a
             href="mailto:support@examzero.ru"
@@ -1953,6 +1959,64 @@ export default function Home() {
             >
               Отмена
             </button>
+          </div>
+        </div>
+      )}
+      {/* Модальное окно «Предложить идею» */}
+      {showIdeaModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#11141a] border border-gray-800 w-full max-w-sm rounded-2xl p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                💡 Предложить улучшение
+              </h3>
+              <button
+                onClick={() => setShowIdeaModal(false)}
+                className="text-gray-400 hover:text-white text-base"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-400">
+              Напиши, какой фичи тебе не хватает для комфортной сдачи, или поделись идеей:
+            </p>
+
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">
+                  Твой контакт (ТГ, VK или ник):
+                </label>
+                <input
+                  type="text"
+                  value={ideaContact}
+                  onChange={(e) => setIdeaContact(e.target.value)}
+                  placeholder="@username или имя (необязательно)"
+                  className="w-full bg-[#171b23] border border-gray-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">
+                  Что добавить или улучшить:
+                </label>
+                <textarea
+                  rows={4}
+                  value={ideaText}
+                  onChange={(e) => setIdeaText(e.target.value)}
+                  placeholder="Например: добавьте генерацию формул в формате картинок или экспорт сразу в заметки..."
+                  className="w-full bg-[#171b23] border border-gray-700 rounded-lg p-3 text-xs text-white focus:outline-none focus:border-indigo-500 resize-none"
+                />
+              </div>
+
+              <button
+                onClick={handleSendIdea}
+                disabled={submittingIdea || !ideaText.trim()}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 text-xs font-semibold rounded-xl text-white transition-colors"
+              >
+                {submittingIdea ? "Отправляем..." : "Отправить идею"}
+              </button>
+            </div>
           </div>
         </div>
       )}
