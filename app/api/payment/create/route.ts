@@ -1,26 +1,21 @@
 import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
-
 export async function POST(req: Request) {
   try {
-    const { amount, description, returnUrl } = await req.json();
+    const { returnUrl } = await req.json();
 
     const shopId = process.env.YOOKASSA_SHOP_ID;
     const secretKey = process.env.YOOKASSA_SECRET_KEY;
 
     if (!shopId || !secretKey) {
       return NextResponse.json(
-        { error: "Ключи ЮKassa не настроены на сервере" },
+        { error: "Платежные данные не настроены" },
         { status: 500 }
       );
     }
 
-    const authHeader =
-      "Basic " + Buffer.from(`${shopId}:${secretKey}`).toString("base64");
-    const idempotenceKey = `pay-${Date.now()}-${Math.random()
-      .toString(36)
-      .substring(2, 9)}`;
+    const idempotenceKey = Date.now().toString() + Math.random().toString();
+    const authHeader = "Basic " + Buffer.from(`${shopId}:${secretKey}`).toString("base64");
 
     const response = await fetch("https://api.yookassa.ru/v3/payments", {
       method: "POST",
@@ -31,44 +26,32 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         amount: {
-          value: Number(amount || 49).toFixed(2),
+          value: "49.00",
           currency: "RUB",
         },
+        capture: true,
         confirmation: {
           type: "redirect",
-          return_url:
-            returnUrl ||
-            process.env.NEXT_PUBLIC_APP_URL ||
-            "https://sessiyabezvody.vercel.app",
+          return_url: returnUrl,
         },
-        capture: true,
-        description:
-          description || "Разбор экзаменационных билетов СессияБезВоды",
-        payment_method_data: {
-          type: "sbp",
-        },
+        description: "ExamZero PRO — Доступ к генератору шпаргалок",
       }),
     });
 
     const data = await response.json();
 
-    if (!response.ok) {
-      console.error("YooKassa API error:", data);
-      return NextResponse.json(
-        { error: data.description || "Ошибка создания платежа" },
-        { status: response.status }
-      );
+    if (data.confirmation?.confirmation_url) {
+      return NextResponse.json({
+        confirmationUrl: data.confirmation.confirmation_url,
+        paymentId: data.id,
+      });
     }
 
-    return NextResponse.json({
-      paymentId: data.id,
-      confirmationUrl: data.confirmation?.confirmation_url,
-    });
-  } catch (error: any) {
-    console.error("Payment create error:", error);
     return NextResponse.json(
-      { error: error.message || "Внутренняя ошибка сервера" },
-      { status: 500 }
+      { error: data.description || "Ошибка создания платежа" },
+      { status: 400 }
     );
+  } catch (err: any) {
+    return NextResponse.json({ error: "Ошибка сервера" }, { status: 500 });
   }
 }
